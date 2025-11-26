@@ -1,7 +1,7 @@
 [project]
 name = "barkueue"
 version = "0.0.1"
-description = "Add your description here"
+description = "A lightweight task queue, easy to embed. / 一个轻量级任务队列，易于嵌入到现有业务系统。"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = []
