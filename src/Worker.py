@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+
 import threading
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.Queue import Queue
     from src.Application import Application
+    from src.Queue import Queue
 
 
 class Worker:
@@ -18,6 +19,7 @@ class Worker:
 
     def loop(self):
         from sqlalchemy import update
+
         from src.orm import BarkueueTask
 
         while self.running:

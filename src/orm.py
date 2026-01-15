@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Integer, Text
+from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
 
 # 创建基类

@@ -1,9 +1,12 @@
-from src.Queue import Queue
-from typing import Callable, Iterable, MutableSequence, Any
+from collections.abc import Callable, MutableSequence
+from typing import Any
+
 from sqlalchemy import Engine
-from sqlalchemy.orm import sessionmaker, Session
-from src.Worker import Worker
+from sqlalchemy.orm import Session, sessionmaker
+
 from src.orm import Base
+from src.Queue import Queue
+from src.Worker import Worker
 
 
 class Application:
@@ -18,14 +21,19 @@ class Application:
         engine: Engine,
     ) -> None:
         self.engine = engine
-        self.session_maker = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        self.session_maker = sessionmaker(
+            bind=engine, autocommit=False, autoflush=False
+        )
 
     def register_exec(self, id: str):
         def dec(func: Callable[[Any], Any]):
             self.executors[id] = func
+
             def inner(*args, **kwargs):
                 return func(*args, **kwargs)
+
             return inner
+
         return dec
 
     def run(self):
@@ -45,4 +53,3 @@ class Application:
         except KeyboardInterrupt:
             for worker in self.workers:
                 worker.stop()
-

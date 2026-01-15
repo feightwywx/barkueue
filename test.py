@@ -1,7 +1,9 @@
+import time
+
+from sqlalchemy import create_engine
+
 from src.Application import Application
 from src.Queue import Queue
-from sqlalchemy import create_engine
-import time
 
 app = Application(create_engine('mssql+pymssql://sa:Aa123456@172.22.47.52:14330'))
 

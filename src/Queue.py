@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 from collections import deque
 from typing import TYPE_CHECKING
-from src.orm import BarkueueTask
-from sqlalchemy import select, and_
 
+from sqlalchemy import and_, select
+
+from src.orm import BarkueueTask
 
 if TYPE_CHECKING:
     from src.Application import Application
