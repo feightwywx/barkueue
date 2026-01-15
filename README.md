@@ -12,41 +12,31 @@ It's **NOT** intended to:
 
 ## Usage
 
-(WIP, pseudo code)
-
 ```python
-import barkueue as bark
+import time
 
-# create a app instance
-app = bark.app(db_connection, loop_interval=1000)
+from sqlalchemy import create_engine
 
-# create a queue
-queue = bark.queue("main")
+from barkueue.Application import Application
+from barkueue.Queue import Queue
 
-# init queue table structure and other things
-@queue.init
-def init_main_queue():
-    ...
+app = Application(create_engine('mssql+pymssql://sa:Aa123456@172.22.47.52:14330'))
 
-# register queue to app
-app.register_queue(queue)
+q1 = Queue('q1')
+q1.bind(app)
 
-# create a task
-task = bark.task("say_bark")
+q2 = Queue('q2')
+q2.bind(app)
 
-# init task triggers and other things
-@task.init
-def init_say_bark_task():
-    ...
+@app.register_exec('e1')
+def e1(_):
+    print('hello e1')
+    time.sleep(2)
 
-# define the task processor
-@task.processor
-def say_bark():
-    print("Bark Bark!")
+@app.register_exec('e2')
+def e2(_):
+    print('hello e2')
+    time.sleep(3)
 
-# register task to app
-app.register_task(task)
-
-# run app
 app.run()
 ```
