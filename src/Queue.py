@@ -16,12 +16,12 @@ class Queue(deque[BarkueueTask]):
     _app: Application | None = None
     _last_fetch: float | None = None
     id: str
-    minFetchTimeout: float
+    minFetchInterval: float
 
-    def __init__(self, id: str, minFetchTimeout: float = 0):
+    def __init__(self, id: str, minFetchInterval: float = 0):
         super().__init__()
         self.id = id
-        self.minFetchTimeout = minFetchTimeout
+        self.minFetchInterval = minFetchInterval
 
     def bind(self, app: Application):
         self._app = app
@@ -32,7 +32,7 @@ class Queue(deque[BarkueueTask]):
 
         now = time.time()
         if self._last_fetch is not None and now < (
-            due := (self._last_fetch + self.minFetchTimeout)
+            due := (self._last_fetch + self.minFetchInterval)
         ):
             time.sleep(due - now)
 
