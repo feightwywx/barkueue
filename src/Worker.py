@@ -25,7 +25,7 @@ class Worker:
         while self.running:
             self.queue.fetch_queue()
 
-            while True:
+            while self.running:
                 try:
                     task = self.queue.pop()
                 except IndexError:

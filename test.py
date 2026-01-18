@@ -7,10 +7,10 @@ from src.Queue import Queue
 
 app = Application(create_engine('mssql+pymssql://sa:Aa123456@172.22.47.52:14330'))
 
-q1 = Queue('q1')
+q1 = Queue('q1', minFetchTimeout=1)
 q1.bind(app)
 
-q2 = Queue('q2')
+q2 = Queue('q2', minFetchTimeout=1)
 q2.bind(app)
 
 @app.register_exec('e1')
