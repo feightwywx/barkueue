@@ -42,7 +42,7 @@ class Queue(deque[BarkueueTask]):
                 .where(
                     and_(BarkueueTask.queue == self.id, BarkueueTask.status.is_(None))
                 )
-                .order_by(BarkueueTask.created.asc())
+                .order_by(BarkueueTask.created.desc())
             )
             result = s.execute(query).scalars().all()
             self.extend(result)
