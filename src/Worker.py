@@ -1,54 +1,56 @@
-from __future__ import annotations
-
-import threading
+from queue import Empty
+from threading import Thread
 from typing import TYPE_CHECKING
 
+from src.Task import Task
+
 if TYPE_CHECKING:
+    from queue import PriorityQueue
+
     from src.Application import Application
-    from src.Queue import Queue
 
 
 class Worker:
-    _app: Application
+    app: Application
     running: bool = True
-    queue: Queue
+    queue: PriorityQueue[Task]
+    queue_timeout: float | None
+    thread: Thread
 
-    def __init__(self, _app: Application, queue: Queue) -> None:
-        self._app = _app
-        self.queue = queue
+    def __init__(
+            self,
+            app: Application,
+            queue_timeout: float | None = None
+        ) -> None:
+        self.app = app
+        self.queue = app.queue
+        self.queue_timeout = queue_timeout
 
     def loop(self):
-        from sqlalchemy import update
-
-        from src.orm import BarkueueTask
-
         while self.running:
-            self.queue.fetch_queue()
+            try:
+                task = self.queue.get(timeout=self.queue_timeout)
+            except Empty:
+                continue
 
-            while self.running:
-                try:
-                    task = self.queue.pop()
-                except IndexError:
-                    break
-
-                with self._app.session_maker() as s:
-                    exec = self._app.executors[str(task.exec)]
-                    param = str(task.param)
-
-                    exec(param)
-
-                    s.execute(
-                        update(BarkueueTask)
-                        .values(status="1")
-                        .where(BarkueueTask.id == task.id)
-                    )
-
-                    s.commit()
-
+            handler = self.app.executors.get(task.id)
+            if handler is None:
+                raise RuntimeError(f'cannot find handler {task.topic} for {task.id}:')
+            
+            try:
+                handler(task)
+            except Exception as e:
+                print(e)
+                task.update_status(1)
+            else:
+                task.update_status(0)
+        
     def start(self):
-        thread = threading.Thread(target=self.loop)
+        thread = Thread(target=self.loop)
         thread.start()
 
+    def join(self):
+        self.thread.join()
 
     def stop(self):
         self.running = False

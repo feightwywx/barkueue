@@ -1,55 +1,70 @@
-from collections.abc import Callable, MutableSequence
-from typing import Any
+from collections.abc import Callable, Iterable, MutableSequence
+from functools import wraps
+from queue import PriorityQueue
+from typing import TypeVar
 
-from sqlalchemy import Engine
-from sqlalchemy.orm import Session, sessionmaker
-
-from src.orm import Base
-from src.Queue import Queue
+from src.datasource.type import DataSource
+from src.Task import Task
 from src.Worker import Worker
+
+R = TypeVar("R")
 
 
 class Application:
-    engine: Engine
-    executors: dict[str, Callable] = {}
-    queues: MutableSequence[Queue] = []
-    session_maker: sessionmaker[Session]
+    sources: Iterable[DataSource]
+    executors: dict[str, Callable[[Task], R]] = {}
+    worker_count: int
     workers: MutableSequence[Worker] = []
+    queue: PriorityQueue
 
-    def __init__(
-        self,
-        engine: Engine,
-    ) -> None:
-        self.engine = engine
-        self.session_maker = sessionmaker(
-            bind=engine, autocommit=False, autoflush=False
-        )
+    def __init__(self, sources: Iterable[DataSource], worker_count: int = 1) -> None:
+        self.sources = sources
+        self.worker_count = worker_count
+        self.queue = PriorityQueue()
 
-    def register_exec(self, id: str):
-        def dec(func: Callable[[Any], Any]):
-            self.executors[id] = func
+    def handler(self, id: str):
+        """
+        Decorate a function as task handler to application.
 
-            def inner(*args, **kwargs):
-                return func(*args, **kwargs)
+        Params:
+            id (str): Handler identifier for this task type.
 
-            return inner
+        Returns:
+            decorator: Function decorator that auto-injects Application instance.
+
+        Example:
+            ```
+            @app.handler("email_task")
+            def handle_email(self: Application, task: Task) -> dict:
+                # Use self.session_maker, self.engine, etc.
+                with self.session_maker() as session:
+                    result = process_email(task.data)
+                    return {"status": "success", "result": result}
+
+            # Later, when processing tasks:
+            task = Task("email_123", {"to": "user@example.com"})
+            result = handle_email(task)  # self is auto-injected
+            ```
+        """
+
+        def dec(func: Callable[["Application", Task], R]) -> Callable[[Task], R]:
+            @wraps(func)
+            def wrapper(task):
+                return func(self, task)
+
+            self.executors[id] = wrapper
+            return wrapper
 
         return dec
 
-    def run(self):
-        # create task storage table
-        Base.metadata.create_all(self.engine)
-
-        # initalize workers
-        for queue in self.queues:
-            self.workers.append(Worker(self, queue))
-
+    def run(self) -> None:
         try:
+            for _ in range(self.worker_count):
+                self.workers.append(Worker(self))
             for worker in self.workers:
                 worker.start()
+                worker.join()
 
-            while True:
-                pass
         except KeyboardInterrupt:
             for worker in self.workers:
                 worker.stop()
