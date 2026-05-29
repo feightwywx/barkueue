@@ -5,7 +5,10 @@ from typing import TypeVar
 
 from src.datasource.type import DataSource
 from src.Task import Task
-from src.Worker import Worker
+from src.util import _logger
+from src.Worker import DataSyncWorker, Worker
+
+QUEUE_TIMEOUT = 5
 
 R = TypeVar("R")
 
@@ -21,6 +24,12 @@ class Application:
         self.sources = sources
         self.worker_count = worker_count
         self.queue = PriorityQueue()
+        self._queued_ids: set[int] = set()
+
+    def enqueue(self, task: Task) -> None:
+        if task.id not in self._queued_ids:
+            self._queued_ids.add(task.id)
+            self.queue.put(task)
 
     def handler(self, id: str):
         """
@@ -59,12 +68,19 @@ class Application:
 
     def run(self) -> None:
         try:
+            # create fetcher
+            self.workers.append(DataSyncWorker(self, queue_timeout=QUEUE_TIMEOUT))
+
             for _ in range(self.worker_count):
-                self.workers.append(Worker(self))
+                self.workers.append(Worker(self, queue_timeout=QUEUE_TIMEOUT))
             for worker in self.workers:
+                _logger.debug(f"created worker {worker}")
                 worker.start()
+
+            for worker in self.workers:
                 worker.join()
 
         except KeyboardInterrupt:
+            _logger.info("shutting down gracefully...")
             for worker in self.workers:
                 worker.stop()

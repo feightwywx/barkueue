@@ -1,11 +1,14 @@
-from collections.abc import Sequence
-from typing import Protocol
+from __future__ import annotations
 
-from src.Task import Task
+from collections.abc import MutableSequence
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from src.Task import Task
 
 
 class DataSource(Protocol):
-    tasks: Sequence[Task]
+    tasks: MutableSequence[Task]
     """
     store tasks.
     """

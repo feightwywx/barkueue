@@ -2,25 +2,25 @@ import time
 
 from sqlalchemy import create_engine
 
-from src.Application import Application
-from src.Queue import Queue
+import src as bark
 
-app = Application(create_engine('mssql+pymssql://sa:Aa123456@172.22.47.52:14330'))
+ds = bark.datasource.SqlAlchemyDataSource(
+    create_engine("mssql+pymssql://sa:Aa123456@172.22.47.52:14330")
+)
 
-q1 = Queue('q1', minFetchInterval=1)
-q1.bind(app)
+app = bark.app([ds], max_workers=4)
 
-q2 = Queue('q2', minFetchInterval=1)
-q2.bind(app)
 
-@app.register_exec('e1')
-def e1(_):
-    print('hello e1')
+@app.handler("bark")
+def bark_handler(app, task: bark.Task):
+    print(f"{task.message} says: bark bark!")
     time.sleep(2)
 
-@app.register_exec('e2')
-def e2(_):
-    print('hello e2')
+
+@app.handler("woof")
+def woof_handler(app, task):
+    print(f"{task.message} says: woof woof!")
     time.sleep(3)
+
 
 app.run()

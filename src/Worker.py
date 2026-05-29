@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from queue import Empty
 from threading import Thread
 from typing import TYPE_CHECKING
 
 from src.Task import Task
+from src.util import _logger
 
 if TYPE_CHECKING:
     from queue import PriorityQueue
@@ -25,6 +28,7 @@ class Worker:
         self.app = app
         self.queue = app.queue
         self.queue_timeout = queue_timeout
+        self.thread = Thread(target=self.loop)
 
     def loop(self):
         while self.running:
@@ -33,24 +37,41 @@ class Worker:
             except Empty:
                 continue
 
-            handler = self.app.executors.get(task.id)
+            handler = self.app.executors.get(task.topic)
             if handler is None:
-                raise RuntimeError(f'cannot find handler {task.topic} for {task.id}:')
+                raise RuntimeError(f'cannot find handler {task.topic} for {task.id}')
             
             try:
                 handler(task)
             except Exception as e:
-                print(e)
-                task.update_status(1)
+                _logger.error(f"Task(id={task.id}, topic={task.topic}) failed: {e}")
+                try:
+                    task.update_status(1)
+                except Exception as ue:
+                    _logger.error(f"Failed to update status for task {task.id}: {ue}")
             else:
-                task.update_status(0)
+                try:
+                    task.update_status(0)
+                except Exception as ue:
+                    _logger.error(f"Failed to update status for task {task.id}: {ue}")
         
     def start(self):
-        thread = Thread(target=self.loop)
-        thread.start()
+        self.thread.start()
 
     def join(self):
         self.thread.join()
 
     def stop(self):
         self.running = False
+
+
+class DataSyncWorker(Worker):
+    def loop(self):
+        while self.running:
+            for ds in self.app.sources:
+                ds.fetch()
+                try:
+                    while task := ds.tasks.pop():
+                        self.app.enqueue(task)
+                except IndexError:
+                    continue

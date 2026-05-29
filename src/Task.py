@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Generic, TypeVar
@@ -5,8 +7,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 if TYPE_CHECKING:
     from src.datasource.type import DataSource
 
-
-DS = TypeVar("DS", bound=DataSource)
+DS = TypeVar("DS", bound="DataSource")
 
 
 @dataclass
@@ -23,7 +24,7 @@ class Task(Generic[DS]):
             raise RuntimeError(f"task {id} is not bound to an adapter")
         return self.adapter.update_status(self, status)
 
-    def __lt__(self, other: "Task") -> bool:
+    def __lt__(self, other: Task) -> bool:
         return self.due < other.due
 
     def __eq__(self, other: object) -> bool:
@@ -31,5 +32,5 @@ class Task(Generic[DS]):
             return NotImplemented
         return self.due == other.due
 
-    def __rt__(self, other: "Task") -> bool:
+    def __rt__(self, other: Task) -> bool:
         return self.due > other.due
