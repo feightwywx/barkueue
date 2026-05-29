@@ -1,6 +1,6 @@
 # barkueue
 
-barkueue (*bark-queue*, or simply as *bark*), is a task queue designed to embed into a current business system, which is:
+barkueue (*bark-queue*, or simply as *bark*), is a task queue designed to embed into a business system already exists, which is:
 
 - Uses a relational database to storage business data
 - Have no event processor, or event processor is hard to use for a simple case
@@ -40,3 +40,11 @@ def woof_handler(app, task):
 
 app.run()
 ```
+
+## Todos
+
+- [x] fetch-consume event loop
+- [ ] fetch interval control
+- [ ] datasource diff, merge status update into data sync worker
+- [ ] retry task
+- [ ] event system (e.g. `@app.init`)
