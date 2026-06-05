@@ -44,7 +44,8 @@ app.run()
 ## Todos
 
 - [x] fetch-consume event loop
-- [ ] fetch interval control
-- [ ] datasource diff, merge status update into data sync worker
+- [x] fetch interval control
+- [x] datasource diff, merge status update into data sync worker
+- [x] memory datasource
 - [ ] retry task
 - [ ] event system (e.g. `@app.init`)

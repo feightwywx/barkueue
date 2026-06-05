@@ -10,23 +10,42 @@ if TYPE_CHECKING:
 class DataSource(Protocol):
     tasks: MutableSequence[Task]
     """
-    store tasks.
+    Buffer populated by fetch(), drained by the caller.
+
+    The caller (DataSyncWorker) drains this list via pop() after each
+    fetch() call. Implementations should append new tasks rather than
+    replacing the list, so the caller can safely iterate-and-pop.
     """
 
     def fetch(self) -> None:
         """
-        fetch task.
+        Populate self.tasks with pending (unprocessed) tasks.
+
+        Each task must have its adapter set to self so that
+        update_status() calls on the task route back to this datasource.
+        Only tasks whose status indicates "unprocessed" (e.g. status is
+        None) should be included.
+
+        Callers are expected to drain self.tasks before the next fetch().
         """
         ...
 
     def update_status(self, task: Task, status: int) -> None:
         """
-        sync task to datasource.
+        Buffer a status update for the given task.
+
+        This method should NOT immediately persist the update. Instead,
+        store it internally so that push() can flush all buffered updates
+        in a single batch.
         """
         ...
 
     def push(self) -> None:
         """
-        flush buffered status updates to the datasource.
+        Flush all buffered status updates.
+
+        After a successful push, tasks whose status was updated should
+        no longer appear in subsequent fetch() calls (because fetch()
+        should only return unprocessed tasks).
         """
         ...
