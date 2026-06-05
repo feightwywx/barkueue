@@ -1,9 +1,9 @@
 from collections.abc import Callable, Iterable, MutableSequence
 from functools import wraps
-from queue import PriorityQueue
 from typing import TypeVar
 
 from src.datasource.type import DataSource
+from src.Queue import DedupPriorityQueue
 from src.Task import Task
 from src.util import _logger
 from src.Worker import DataSyncWorker, Worker
@@ -18,18 +18,12 @@ class Application:
     executors: dict[str, Callable[[Task], R]] = {}
     worker_count: int
     workers: MutableSequence[Worker] = []
-    queue: PriorityQueue
+    queue: DedupPriorityQueue
 
     def __init__(self, sources: Iterable[DataSource], worker_count: int = 1) -> None:
         self.sources = sources
         self.worker_count = worker_count
-        self.queue = PriorityQueue()
-        self._queued_ids: set[int] = set()
-
-    def enqueue(self, task: Task) -> None:
-        if task.id not in self._queued_ids:
-            self._queued_ids.add(task.id)
-            self.queue.put(task)
+        self.queue = DedupPriorityQueue()
 
     def handler(self, id: str):
         """

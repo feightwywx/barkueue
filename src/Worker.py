@@ -4,19 +4,17 @@ from queue import Empty
 from threading import Thread
 from typing import TYPE_CHECKING
 
-from src.Task import Task
 from src.util import _logger
 
 if TYPE_CHECKING:
-    from queue import PriorityQueue
-
     from src.Application import Application
+    from src.Queue import DedupPriorityQueue
 
 
 class Worker:
     app: Application
     running: bool = True
-    queue: PriorityQueue[Task]
+    queue: DedupPriorityQueue
     queue_timeout: float | None
     thread: Thread
 
@@ -33,27 +31,34 @@ class Worker:
     def loop(self):
         while self.running:
             try:
-                task = self.queue.get(timeout=self.queue_timeout)
+                with self.queue.get_context(timeout=self.queue_timeout) as task:
+                    handler = self.app.executors.get(task.topic)
+                    if handler is None:
+                        raise RuntimeError(
+                            f'cannot find handler {task.topic} for {task.id}'
+                        )
+
+                    try:
+                        handler(task)
+                    except Exception as e:
+                        _logger.error(
+                            f"Task(id={task.id}, topic={task.topic}) failed: {e}"
+                        )
+                        try:
+                            task.update_status(1)
+                        except Exception as ue:
+                            _logger.error(
+                                f"Failed to update status for task {task.id}: {ue}"
+                            )
+                    else:
+                        try:
+                            task.update_status(0)
+                        except Exception as ue:
+                            _logger.error(
+                                f"Failed to update status for task {task.id}: {ue}"
+                            )
             except Empty:
                 continue
-
-            handler = self.app.executors.get(task.topic)
-            if handler is None:
-                raise RuntimeError(f'cannot find handler {task.topic} for {task.id}')
-            
-            try:
-                handler(task)
-            except Exception as e:
-                _logger.error(f"Task(id={task.id}, topic={task.topic}) failed: {e}")
-                try:
-                    task.update_status(1)
-                except Exception as ue:
-                    _logger.error(f"Failed to update status for task {task.id}: {ue}")
-            else:
-                try:
-                    task.update_status(0)
-                except Exception as ue:
-                    _logger.error(f"Failed to update status for task {task.id}: {ue}")
         
     def start(self):
         self.thread.start()
@@ -72,6 +77,6 @@ class DataSyncWorker(Worker):
                 ds.fetch()
                 try:
                     while task := ds.tasks.pop():
-                        self.app.enqueue(task)
+                        self.app.queue.put(task)
                 except IndexError:
                     continue
