@@ -24,3 +24,9 @@ class DataSource(Protocol):
         sync task to datasource.
         """
         ...
+
+    def push(self) -> None:
+        """
+        flush buffered status updates to the datasource.
+        """
+        ...

@@ -71,6 +71,7 @@ class DataSyncWorker(Worker):
             _logger.info("Fetch tasks from datasources...")
             start = time.monotonic()
             for ds in self.app.sources:
+                ds.push()
                 ds.fetch()
                 try:
                     while task := ds.tasks.pop():
