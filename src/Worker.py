@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from queue import Empty
 from threading import Thread
 from typing import TYPE_CHECKING
@@ -15,23 +16,17 @@ class Worker:
     app: Application
     running: bool = True
     queue: DedupPriorityQueue
-    queue_timeout: float | None
     thread: Thread
 
-    def __init__(
-            self,
-            app: Application,
-            queue_timeout: float | None = None
-        ) -> None:
+    def __init__(self, app: Application) -> None:
         self.app = app
         self.queue = app.queue
-        self.queue_timeout = queue_timeout
         self.thread = Thread(target=self.loop)
 
     def loop(self):
         while self.running:
             try:
-                with self.queue.get_context(timeout=self.queue_timeout) as task:
+                with self.queue.get_context(timeout=self.app.queue_timeout) as task:
                     handler = self.app.executors.get(task.topic)
                     if handler is None:
                         raise RuntimeError(
@@ -73,6 +68,8 @@ class Worker:
 class DataSyncWorker(Worker):
     def loop(self):
         while self.running:
+            _logger.info("Fetch tasks from datasources...")
+            start = time.monotonic()
             for ds in self.app.sources:
                 ds.fetch()
                 try:
@@ -80,3 +77,7 @@ class DataSyncWorker(Worker):
                         self.app.queue.put(task)
                 except IndexError:
                     continue
+            elapsed = time.monotonic() - start
+            sleep_time = self.app.fetch_interval - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)

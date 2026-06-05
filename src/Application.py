@@ -8,8 +8,6 @@ from src.Task import Task
 from src.util import _logger
 from src.Worker import DataSyncWorker, Worker
 
-QUEUE_TIMEOUT = 5
-
 R = TypeVar("R")
 
 
@@ -20,10 +18,18 @@ class Application:
     workers: MutableSequence[Worker] = []
     queue: DedupPriorityQueue
 
-    def __init__(self, sources: Iterable[DataSource], worker_count: int = 1) -> None:
+    def __init__(
+        self,
+        sources: Iterable[DataSource],
+        worker_count: int = 1,
+        queue_timeout: float = 5,
+        fetch_interval: float = 0,
+    ) -> None:
         self.sources = sources
         self.worker_count = worker_count
         self.queue = DedupPriorityQueue()
+        self.queue_timeout = queue_timeout
+        self.fetch_interval = fetch_interval
 
     def handler(self, id: str):
         """
@@ -63,10 +69,10 @@ class Application:
     def run(self) -> None:
         try:
             # create fetcher
-            self.workers.append(DataSyncWorker(self, queue_timeout=QUEUE_TIMEOUT))
+            self.workers.append(DataSyncWorker(self))
 
             for _ in range(self.worker_count):
-                self.workers.append(Worker(self, queue_timeout=QUEUE_TIMEOUT))
+                self.workers.append(Worker(self))
             for worker in self.workers:
                 _logger.debug(f"created worker {worker}")
                 worker.start()

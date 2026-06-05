@@ -8,7 +8,7 @@ ds = bark.datasource.SqlAlchemyDataSource(
     create_engine("mssql+pymssql://sa:Aa123456@172.22.47.52:14330")
 )
 
-app = bark.app([ds], max_workers=4)
+app = bark.app([ds], max_workers=4, fetch_interval=5)
 
 
 @app.handler("bark")
