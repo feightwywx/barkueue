@@ -8,7 +8,11 @@ dependencies = []
 
 [dependency-groups]
 dev = ["mypy>=1.19.0"]
-test = ["sqlalchemy>=2.0.0", "pymssql>=2.3.11"]
+test = [
+    "sqlalchemy>=2.0.0",
+    "pymssql>=2.3.11",
+    "pytest>=9.0.3",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "UP", "B", "SIM", "I"]
