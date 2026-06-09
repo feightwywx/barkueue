@@ -29,7 +29,7 @@ bark.app([datasources])           # 单例工厂 → Application
        └── ArrayDataSource        # 纯内存实现，用于测试
 ```
 
-**`src/__init__.py`** 是公开 API 入口。通过 `import src as bark` 导入，`bark.app()` 获取单例 `Application`。`app()` 支持参数：`sources`、`max_workers`、`queue_timeout`、`fetch_interval`。
+**`src/barkueue/__init__.py`** 是公开 API 入口。外部代码通过 `import barkueue as bark` 导入，调用 `bark.app()` 获取单例 `Application`。`app()` 支持参数：`sources`、`max_workers`、`queue_timeout`、`fetch_interval`。
 
 **`Application`** 持有 handler 注册表（`executors: dict[str, Callable]`）、工作线程池和 `DedupPriorityQueue[Task]`。提供 `queue_timeout` 和 `fetch_interval` 属性，Worker 从 app 实例直接读取。`app.run()` 启动 worker 并 block。
 

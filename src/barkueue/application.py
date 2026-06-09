@@ -2,11 +2,11 @@ from collections.abc import Callable, Iterable, MutableSequence
 from functools import wraps
 from typing import TypeVar
 
-from src.datasource.type import DataSource
-from src.queue import DedupPriorityQueue
-from src.task import Task
-from src.util import _logger
-from src.worker import DataSyncWorker, Worker
+from barkueue.datasource.type import DataSource
+from barkueue.queue import DedupPriorityQueue
+from barkueue.task import Task
+from barkueue.util import _logger
+from barkueue.worker import DataSyncWorker, Worker
 
 R = TypeVar("R")
 

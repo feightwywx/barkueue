@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 from uuid import uuid4
 
 if TYPE_CHECKING:
-    from src.datasource.type import DataSource
+    from barkueue.datasource.type import DataSource
 
 DS = TypeVar("DS", bound="DataSource")
 

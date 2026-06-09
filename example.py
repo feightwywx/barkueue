@@ -1,6 +1,6 @@
 import time
 
-import src as bark
+import barkueue as bark
 
 arr: list[bark.Task] = [
     bark.Task("dog.bark", "Bluey"),

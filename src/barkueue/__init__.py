@@ -1,9 +1,9 @@
 from collections.abc import Iterable
 
-import src.datasource as datasource
-from src.application import Application
-from src.datasource.type import DataSource
-from src.task import Task
+import barkueue.datasource as datasource
+from barkueue.application import Application
+from barkueue.datasource.type import DataSource
+from barkueue.task import Task
 
 _current_app = None
 

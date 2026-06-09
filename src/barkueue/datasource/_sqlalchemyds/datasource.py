@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
-from src.datasource.SqlAlchemyDataSource.model import ORMTaskTable
-from src.datasource.type import DataSource
-from src.task import Task
+from barkueue.datasource._sqlalchemyds.model import ORMTaskTable
+from barkueue.datasource.type import DataSource
+from barkueue.task import Task
 
 if TYPE_CHECKING:
     from sqlalchemy import Engine

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from queue import PriorityQueue
 from typing import TYPE_CHECKING
 
-from src.task import Task
+from barkueue.task import Task
 
 if TYPE_CHECKING:
     pass

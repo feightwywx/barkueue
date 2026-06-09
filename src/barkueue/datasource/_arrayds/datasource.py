@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections.abc import MutableSequence
 
-from src.datasource.type import DataSource
-from src.task import Task
+from barkueue.datasource.type import DataSource
+from barkueue.task import Task
 
 
 class ArrayDataSource(DataSource):

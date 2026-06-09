@@ -5,12 +5,12 @@ from queue import Empty
 from threading import Thread
 from typing import TYPE_CHECKING
 
-from src.util import _logger
-from src.util.exchange import match_topic
+from barkueue.util import _logger
+from barkueue.util.exchange import match_topic
 
 if TYPE_CHECKING:
-    from src.application import Application
-    from src.queue import DedupPriorityQueue
+    from barkueue.application import Application
+    from barkueue.queue import DedupPriorityQueue
 
 
 class Worker:

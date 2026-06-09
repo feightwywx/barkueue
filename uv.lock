@@ -5,7 +5,12 @@ requires-python = ">=3.11"
 [[package]]
 name = "barkueue"
 version = "0.0.1"
-source = { virtual = "." }
+source = { editable = "." }
+
+[package.optional-dependencies]
+sqlalchemy = [
+    { name = "sqlalchemy" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -18,6 +23,8 @@ test = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "sqlalchemy", marker = "extra == 'sqlalchemy'", specifier = ">=2.0.0" }]
+provides-extras = ["sqlalchemy"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "mypy", specifier = ">=1.19.0" }]
