@@ -6,6 +6,7 @@ from threading import Thread
 from typing import TYPE_CHECKING
 
 from src.util import _logger
+from src.util.exchange import match_topic
 
 if TYPE_CHECKING:
     from src.application import Application
@@ -23,22 +24,38 @@ class Worker:
         self.queue = app.queue
         self.thread = Thread(target=self.loop)
 
+    def _get_topic_handlers(self, topic: str) -> list:
+        """Return all handlers whose registered pattern matches the topic."""
+        return [
+            handler
+            for pattern, handler in self.app.executors.items()
+            if match_topic(pattern, topic)
+        ]
+
     def loop(self):
         while self.running:
             try:
                 with self.queue.get_context(timeout=self.app.queue_timeout) as task:
-                    handler = self.app.executors.get(task.topic)
-                    if handler is None:
-                        raise RuntimeError(
-                            f'cannot find handler {task.topic} for {task.id}'
-                        )
-
-                    try:
-                        handler(task)
-                    except Exception as e:
+                    handlers = self._get_topic_handlers(task.topic)
+                    if not handlers:
                         _logger.error(
-                            f"Task(id={task.id}, topic={task.topic}) failed: {e}"
+                            f"no handler for topic={task.topic}, task={task.id}"
                         )
+                        task.update_status(1)
+                        continue
+
+                    failed = False
+                    for handler in handlers:
+                        try:
+                            handler(task)
+                        except Exception:
+                            _logger.exception(
+                                f"Task(id={task.id}, topic={task.topic})"
+                                f" failed on handler {handler.__name__}"
+                            )
+                            failed = True
+
+                    if failed:
                         try:
                             task.update_status(1)
                         except Exception as ue:

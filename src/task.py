@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Generic, TypeVar
 from uuid import uuid4
@@ -16,9 +16,9 @@ class Task(Generic[DS]):
     topic: str
     message: str
 
-    id: str = str(uuid4())
+    id: str = field(default_factory=lambda: str(uuid4()))
     status: None | int = None
-    due: datetime = datetime.now()
+    due: datetime = field(default_factory=datetime.now)
     adapter: DS | None = None
 
     def update_status(self, status: int):
