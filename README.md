@@ -1,5 +1,7 @@
 # barkueue
 
+English | [简体中文](README_zh.md)
+
 barkueue (*bark-queue*, or simply as *bark*), is a task queue designed to embed into a business system already exists, which is:
 
 - Uses a relational database to storage business data
