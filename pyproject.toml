@@ -39,5 +39,8 @@ test = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/barkueue"]
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [tool.ruff.lint]
 select = ["E", "F", "UP", "B", "SIM", "I"]

@@ -13,9 +13,9 @@ R = TypeVar("R")
 
 class Application:
     sources: Iterable[DataSource]
-    executors: dict[str, Callable[[Task], R]] = {}
+    executors: dict[str, Callable[[Task], R]]
     worker_count: int
-    workers: MutableSequence[Worker] = []
+    workers: MutableSequence[Worker]
     queue: DedupPriorityQueue
 
     def __init__(
@@ -26,6 +26,8 @@ class Application:
         fetch_interval: float = 0,
     ) -> None:
         self.sources = sources
+        self.executors = {}
+        self.workers = []
         self.worker_count = worker_count
         self.queue = DedupPriorityQueue()
         self.queue_timeout = queue_timeout
