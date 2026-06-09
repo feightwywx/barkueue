@@ -1,10 +1,8 @@
 from datetime import datetime
 
-import pytest
 from sqlalchemy import text
 
 from barkueue.datasource._sqlalchemyds.datasource import SqlAlchemyDataSource
-from barkueue.task import Task
 
 
 def _insert_row(session, **kwargs):

@@ -1,4 +1,3 @@
-import pytest
 
 from barkueue.datasource import ArrayDataSource
 from barkueue.task import Task

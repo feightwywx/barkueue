@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -60,11 +60,24 @@ class TestDefaults:
         assert isinstance(t.due, datetime)
 
     def test_due_is_independent_per_instance(self):
-        t1 = Task("t", "msg", due=datetime(2020, 1, 1))
-        t2 = Task("t", "msg")
-        # t2.due should be a recent timestamp, not 2020
-        assert t2.due > datetime(2020, 1, 2)
+        t = Task("t", "msg")
+        # due should be a recent timestamp, not a class-level frozen default
+        assert t.due > datetime(2020, 1, 2)
 
     def test_status_defaults_to_none(self):
         t = Task("t", "msg")
         assert t.status is None
+
+
+class TestEqEdgeCases:
+    def test_eq_with_non_task_returns_notimplemented(self):
+        t = Task("t", "msg", due=datetime(2020, 1, 1))
+        assert (t == "not a task") is False
+        assert (t == 42) is False
+
+    def test_rt_comparison(self):
+        early = Task("t", "msg", due=datetime(2020, 1, 1))
+        late = Task("t", "msg", due=datetime(2020, 6, 1))
+        # __rt__ returns self.due > other.due
+        assert early.__rt__(late) is False  # 2020-01 > 2020-06 → False
+        assert late.__rt__(early) is True  # 2020-06 > 2020-01 → True
