@@ -3,10 +3,10 @@ from functools import wraps
 from typing import TypeVar
 
 from src.datasource.type import DataSource
-from src.Queue import DedupPriorityQueue
-from src.Task import Task
+from src.queue import DedupPriorityQueue
+from src.task import Task
 from src.util import _logger
-from src.Worker import DataSyncWorker, Worker
+from src.worker import DataSyncWorker, Worker
 
 R = TypeVar("R")
 

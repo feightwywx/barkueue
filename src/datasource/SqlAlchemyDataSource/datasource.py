@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.datasource.SqlAlchemyDataSource.model import ORMTaskTable
 from src.datasource.type import DataSource
-from src.Task import Task
+from src.task import Task
 
 if TYPE_CHECKING:
     from sqlalchemy import Engine

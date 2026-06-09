@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Generic, TypeVar
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from src.datasource.type import DataSource
@@ -12,11 +13,12 @@ DS = TypeVar("DS", bound="DataSource")
 
 @dataclass
 class Task(Generic[DS]):
-    id: int
     topic: str
     message: str
-    due: datetime
-    status: int
+
+    id: str = str(uuid4())
+    status: None | int = None
+    due: datetime = datetime.now()
     adapter: DS | None = None
 
     def update_status(self, status: int):

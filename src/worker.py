@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from src.util import _logger
 
 if TYPE_CHECKING:
-    from src.Application import Application
-    from src.Queue import DedupPriorityQueue
+    from src.application import Application
+    from src.queue import DedupPriorityQueue
 
 
 class Worker:

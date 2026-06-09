@@ -1,9 +1,9 @@
 from collections.abc import Iterable
 
 import src.datasource as datasource
-from src.Application import Application
+from src.application import Application
 from src.datasource.type import DataSource
-from src.Task import Task
+from src.task import Task
 
 _current_app = None
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import MutableSequence
 
 from src.datasource.type import DataSource
-from src.Task import Task
+from src.task import Task
 
 
 class ArrayDataSource(DataSource):

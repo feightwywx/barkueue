@@ -4,7 +4,7 @@ from collections.abc import MutableSequence
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from src.Task import Task
+    from src.task import Task
 
 
 class DataSource(Protocol):
