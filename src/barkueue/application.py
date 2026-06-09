@@ -86,3 +86,5 @@ class Application:
             _logger.info("shutting down gracefully...")
             for worker in self.workers:
                 worker.stop()
+            for worker in self.workers:
+                worker.join(timeout=self.queue_timeout)

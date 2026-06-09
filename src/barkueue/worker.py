@@ -56,27 +56,17 @@ class Worker:
                             failed = True
 
                     if failed:
-                        try:
-                            task.update_status(1)
-                        except Exception as ue:
-                            _logger.error(
-                                f"Failed to update status for task {task.id}: {ue}"
-                            )
+                        task.update_status(1)
                     else:
-                        try:
-                            task.update_status(0)
-                        except Exception as ue:
-                            _logger.error(
-                                f"Failed to update status for task {task.id}: {ue}"
-                            )
+                        task.update_status(0)
             except Empty:
                 continue
         
     def start(self):
         self.thread.start()
 
-    def join(self):
-        self.thread.join()
+    def join(self, timeout: float | None = None):
+        self.thread.join(timeout)
 
     def stop(self):
         self.running = False
