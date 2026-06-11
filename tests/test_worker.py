@@ -11,7 +11,7 @@ from barkueue.worker import DataSyncWorker, Worker
 
 class TestGetTopicHandlers:
     def test_returns_matching_in_registration_order(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         @app.handler("order.*")
         def star(app, task):  # noqa: ARG001
@@ -28,7 +28,7 @@ class TestGetTopicHandlers:
         assert handlers[1] is exact
 
     def test_returns_empty_when_no_match(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         @app.handler("payment.*")
         def h(app, task):  # noqa: ARG001
@@ -39,7 +39,7 @@ class TestGetTopicHandlers:
         assert handlers == []
 
     def test_handlers_executed_in_sequence(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         results = []
 
         @app.handler("test.*")
@@ -57,7 +57,7 @@ class TestGetTopicHandlers:
         assert results == ["first", "second"]
 
     def test_one_handler_fails_others_still_run(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         results = []
 
         @app.handler("test.*")
@@ -89,7 +89,7 @@ class TestWorkerLoop:
     def test_worker_processes_task_successfully(self):
         processed = []
 
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
@@ -104,12 +104,12 @@ class TestWorkerLoop:
         worker.start()
         self._wait_for(lambda: len(processed) == 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert processed == ["hello"]
 
     def test_worker_marks_failed_task_status_1(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
@@ -125,13 +125,13 @@ class TestWorkerLoop:
         worker.start()
         self._wait_for(lambda: bool(ds._updated))
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         ds.push()
         assert ds._updated == {}
 
     def test_worker_marks_no_handler_task_failed(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         task = Task("unknown_topic", "msg")
         app.queue.put(task)
@@ -144,14 +144,14 @@ class TestWorkerLoop:
         worker.start()
         self._wait_for(lambda: bool(ds._updated))
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         ds.push()
         assert internal[0].status == 1
 
     def test_multiple_handlers_all_succeed(self):
         results = []
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         @app.handler("test.*")
         def h1(app, task):  # noqa: ARG001
@@ -170,13 +170,13 @@ class TestWorkerLoop:
         worker.start()
         self._wait_for(lambda: len(results) == 2)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert results == ["h1", "h2"]
 
     def test_multiple_handlers_one_fails_still_marks_failed(self):
         results = []
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
 
         @app.handler("test.*")
         def h1(app, task):  # noqa: ARG001
@@ -196,13 +196,13 @@ class TestWorkerLoop:
         worker.start()
         self._wait_for(lambda: len(results) == 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         ds.push()
         assert internal[0].status == 1
 
     def test_worker_stop(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         worker = Worker(app)
         worker.start()
         assert worker.running is True
@@ -240,7 +240,7 @@ class TestApplicationRun:
         # Stop all workers
         for w in app.workers:
             w.stop()
-        t.join(timeout=5)
+        t.join(timeout=2)
 
         assert results == ["hello"]
         assert internal[0].status == 0
@@ -265,7 +265,7 @@ class TestDataSyncWorkerLoop:
         dsw.start()
         self._wait_for(lambda: app.queue.qsize() >= 2)
         dsw.stop()
-        dsw.join(timeout=3)
+        dsw.join(timeout=1)
 
         assert app.queue.qsize() == 2
 
@@ -282,6 +282,6 @@ class TestDataSyncWorkerLoop:
         # Wait for push to happen (status becomes non-None in _internal)
         self._wait_for(lambda: internal[0].status == 0)
         dsw.stop()
-        dsw.join(timeout=3)
+        dsw.join(timeout=1)
 
         assert internal[0].status == 0

@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = []
+dependencies = ["croniter>=6.0.0"]
 
 [project.optional-dependencies]
 sqlalchemy = ["sqlalchemy>=2.0.0"]

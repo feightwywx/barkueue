@@ -162,7 +162,7 @@ class TestLifecycleOrder:
         assert condition(), f"condition not met within {timeout}s"
 
     def test_event_firing_order_in_worker_loop(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         events = []
 
         @app.event(TASK_BEFORE_RUN)
@@ -196,7 +196,7 @@ class TestLifecycleOrder:
         worker.start()
         self._wait_for(lambda: any(e[0] == "task_after" for e in events))
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         # Verify order within the worker loop (exclude app_before/app_after
         # which are not fired by the worker)
@@ -220,7 +220,7 @@ class TestHandlerEventsOnlyWhenHandlersMatch:
         assert condition(), f"condition not met within {timeout}s"
 
     def test_handler_events_not_fired_when_no_handlers_match(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         handler_events = []
         task_after_fired = []
 
@@ -244,7 +244,7 @@ class TestHandlerEventsOnlyWhenHandlersMatch:
         worker.start()
         self._wait_for(lambda: len(task_after_fired) >= 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert handler_events == []
 
@@ -257,7 +257,7 @@ class TestHandlerAfterRunOnException:
         assert condition(), f"condition not met within {timeout}s"
 
     def test_handler_after_run_fires_when_handler_raises(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         after_events = []
 
         @app.event(HANDLER_AFTER_RUN)
@@ -276,7 +276,7 @@ class TestHandlerAfterRunOnException:
         worker.start()
         self._wait_for(lambda: len(after_events) >= 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert len(after_events) == 1
         # original function name via @wraps
@@ -291,7 +291,7 @@ class TestTaskAfterRun:
         assert condition(), f"condition not met within {timeout}s"
 
     def test_task_after_run_fires_when_no_handler_matches(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         after_events = []
 
         @app.event(TASK_AFTER_RUN)
@@ -306,13 +306,13 @@ class TestTaskAfterRun:
         worker.start()
         self._wait_for(lambda: len(after_events) >= 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert len(after_events) == 1
         assert after_events[0] is task
 
     def test_task_after_run_fires_on_success(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         after_events = []
 
         @app.event(TASK_AFTER_RUN)
@@ -333,7 +333,7 @@ class TestTaskAfterRun:
         worker.start()
         self._wait_for(lambda: len(after_events) >= 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert len(after_events) == 1
         assert after_events[0] is task
@@ -341,7 +341,7 @@ class TestTaskAfterRun:
         assert internal[0].status == 0
 
     def test_task_after_run_fires_on_failure(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         after_events = []
 
         @app.event(TASK_AFTER_RUN)
@@ -362,7 +362,7 @@ class TestTaskAfterRun:
         worker.start()
         self._wait_for(lambda: len(after_events) >= 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert len(after_events) == 1
         assert after_events[0] is task
@@ -370,7 +370,7 @@ class TestTaskAfterRun:
         assert internal[0].status == 1
 
     def test_task_before_run_fires(self):
-        app = Application(sources=[])
+        app = Application(sources=[], queue_timeout=0.1)
         before_events = []
 
         @app.event(TASK_BEFORE_RUN)
@@ -389,7 +389,7 @@ class TestTaskAfterRun:
         worker.start()
         self._wait_for(lambda: len(before_events) >= 1)
         worker.stop()
-        worker.join(timeout=3)
+        worker.join(timeout=1)
 
         assert len(before_events) == 1
         assert before_events[0] is task
@@ -417,7 +417,7 @@ class TestAppLifecycleEvents:
         time.sleep(0.3)
         for w in app.workers:
             w.stop()
-        t.join(timeout=3)
+        t.join(timeout=2)
 
         assert len(before_fired) == 1
         assert len(after_fired) == 1

@@ -225,12 +225,49 @@ def log_elapsed(event: bark.Event) -> None:
 - `handler_before_run` / `handler_after_run` only fire when the topic has matching handlers; the `for` loop body does not execute otherwise
 - `task_after_run` always fires regardless of whether a handler matched the topic
 
+## Cron Scheduling
+
+`app.schedule(cron, task)` creates a recurring task based on a cron expression. The first occurrence is enqueued immediately with `due` set to the next cron match; after each completion the next occurrence is automatically enqueued.
+
+```python
+import barkueue as bark
+
+app = bark.app([ds])
+
+@app.handler("report.gen")
+def gen_report(app: bark.Application, task: bark.Task) -> None:
+    print(f"Generating report: {task.message}")
+
+# Every 5 minutes
+app.schedule("*/5 * * * *", bark.Task("report.gen", "weekly_report"))
+
+# Every day at 9:00 AM
+app.schedule("0 9 * * *", bark.Task("cleanup", "daily_cleanup"))
+
+app.run()
+```
+
+### How It Works
+
+- On the first `schedule()` call, a `TASK_AFTER_RUN` event handler is registered first, then the next cron time is computed and the first task is enqueued (handler-before-enqueue prevents a race where the worker completes the task before the handler is registered)
+- After each completion, the handler creates a new `Task` (same `topic` and `message`, `due` set to the next cron match) and enqueues it, forming an infinite chain
+- Multiple schedules are distinguished by Python object identity (`is`) — they never interfere with each other
+- New tasks automatically inherit the template's `adapter` so status updates work correctly
+
+### Notes
+
+- Depends on the `croniter` library for cron expression parsing; supports standard 5-field cron
+- Cancellation is not supported — once scheduled, the task fires until the app stops
+- Each occurrence is a fresh `Task` with a unique UUID, so `DedupPriorityQueue` deduplication does not interfere
+- Schedules are not persisted — restarting the app loses all schedules
+
 ## To-dos
 
 - [x] fetch-consume event loop
 - [x] fetch interval control
 - [x] datasource diff, merge status update into data sync worker
 - [x] in-memory datasource
+- [x] cron scheduling
 - [ ] retry task
 - [x] event system
 

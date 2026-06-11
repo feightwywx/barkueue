@@ -3,8 +3,9 @@ from functools import wraps
 from typing import TypeVar
 
 from barkueue.datasource.type import DataSource
-from barkueue.event import APP_AFTER_RUN, APP_BEFORE_RUN, Event
+from barkueue.event import APP_AFTER_RUN, APP_BEFORE_RUN, TASK_AFTER_RUN, Event
 from barkueue.queue import DedupPriorityQueue
+from barkueue.schedule import _next_cron_time
 from barkueue.task import Task
 from barkueue.util import _logger
 from barkueue.worker import DataSyncWorker, Worker
@@ -108,6 +109,45 @@ class Application:
             return func
 
         return dec
+
+    def schedule(self, cron: str, task: Task) -> None:
+        """Schedule a recurring task using a cron expression.
+
+        The first occurrence is enqueued immediately with ``due`` set to the
+        next cron time. After each occurrence completes, a new task with the
+        same ``topic`` and ``message`` is created and enqueued for the next
+        cron time.
+
+        Args:
+            cron: A standard 5-field cron expression
+                (``"minute hour dom month dow"``).
+            task: Template task whose ``topic`` and ``message`` are reused
+                for every occurrence. The task's ``due`` and ``id`` are
+                overwritten for each occurrence.
+
+        Example::
+
+            app.schedule("*/5 * * * *", Task("report.gen", "weekly_report"))
+        """
+        # Mutable container so the closure can track the latest enqueued task.
+        current: list[Task] = [task]
+
+        def _enqueue_next() -> None:
+            new_task: Task = Task(task.topic, task.message)
+            new_task.adapter = task.adapter
+            new_task.due = _next_cron_time(cron)
+            current[0] = new_task
+            self.queue.put(new_task)
+
+        # Register the event handler BEFORE enqueuing the first task.
+        # Otherwise the worker could process and complete the task before
+        # the handler is registered, breaking the chain.
+        @self.event(TASK_AFTER_RUN)
+        def _reschedule(event: Event) -> None:
+            if event.task is current[0]:
+                _enqueue_next()
+
+        _enqueue_next()
 
     def run(self) -> None:
         self._fire_event(APP_BEFORE_RUN)

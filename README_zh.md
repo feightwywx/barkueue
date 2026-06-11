@@ -226,13 +226,49 @@ def log_elapsed(event: bark.Event) -> None:
 - `handler_before_run` / `handler_after_run` 仅在 topic 有匹配 handler 时触发；无匹配时 `for` 循环体不执行
 - `task_after_run` 无论是否有匹配 handler 都会触发
 
+## 定时任务
+
+`app.schedule(cron, task)` 基于 cron 表达式创建周期性任务。首次触发立即入队（`due` 设为下一次 cron 匹配时间），之后每次任务完成后自动排定下一次入队。
+
+```python
+import barkueue as bark
+
+app = bark.app([ds])
+
+@app.handler("report.gen")
+def gen_report(app: bark.Application, task: bark.Task) -> None:
+    print(f"生成报告: {task.message}")
+
+# 每 5 分钟执行一次
+app.schedule("*/5 * * * *", bark.Task("report.gen", "weekly_report"))
+
+# 每天早上 9:00 执行
+app.schedule("0 9 * * *", bark.Task("cleanup", "daily_cleanup"))
+
+app.run()
+```
+
+### 工作原理
+
+- 首次调用 `schedule()` 时，先注册 `TASK_AFTER_RUN` 事件处理器，再计算下一次 cron 时间并入队首个任务（先注册后入队，避免竞态）
+- 每次任务完成后，处理器创建新的 `Task`（相同 `topic` 和 `message`，`due` 为下一次 cron 匹配时间）并入队，形成无限链式调度
+- 同一 schedule 的多次触发通过 Python 对象标识（`is`）精确匹配，互不干扰
+- 新任务自动继承模板的 `adapter`，确保状态更新正常工作
+
+### 注意事项
+
+- 依赖 `croniter` 库解析 cron 表达式，支持标准 5 字段 cron
+- 不支持取消调度——调用 `schedule()` 后将持续触发直到 app 停止
+- 每次触发生成全新 Task（唯一 UUID），因此不会被 `DedupPriorityQueue` 去重
+- 若 app 重启，所有调度丢失（不持久化）
+
 ## To-dos
 
 - [x] fetch-consume 事件循环
 - [x] fetch 间隔控制
 - [x] 数据源diff，将状态更新合并到数据同步工作线程
 - [x] 内存数据源
-- [ ] 定时任务
+- [x] 定时任务
 - [ ] 任务重试
 - [x] 事件系统
 
