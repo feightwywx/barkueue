@@ -5,6 +5,12 @@ from queue import Empty
 from threading import Thread
 from typing import TYPE_CHECKING
 
+from barkueue.event import (
+    HANDLER_AFTER_RUN,
+    HANDLER_BEFORE_RUN,
+    TASK_AFTER_RUN,
+    TASK_BEFORE_RUN,
+)
 from barkueue.util import _logger
 from barkueue.util.exchange import match_topic
 
@@ -36,16 +42,22 @@ class Worker:
         while self.running:
             try:
                 with self.queue.get_context(timeout=self.app.queue_timeout) as task:
+                    self.app._fire_event(TASK_BEFORE_RUN, task=task)
+
                     handlers = self._get_topic_handlers(task.topic)
                     if not handlers:
                         _logger.error(
                             f"no handler for topic={task.topic}, task={task.id}"
                         )
                         task.update_status(1)
+                        self.app._fire_event(TASK_AFTER_RUN, task=task)
                         continue
 
                     failed = False
                     for handler in handlers:
+                        self.app._fire_event(
+                            HANDLER_BEFORE_RUN, task=task, handler=handler
+                        )
                         try:
                             handler(task)
                         except Exception:
@@ -54,11 +66,15 @@ class Worker:
                                 f" failed on handler {handler.__name__}"
                             )
                             failed = True
+                        self.app._fire_event(
+                            HANDLER_AFTER_RUN, task=task, handler=handler
+                        )
 
                     if failed:
                         task.update_status(1)
                     else:
                         task.update_status(0)
+                    self.app._fire_event(TASK_AFTER_RUN, task=task)
             except Empty:
                 continue
         

@@ -141,6 +141,90 @@ class MyDataSource(DataSource):
         ...
 ```
 
+## Event System
+
+barkueue provides six lifecycle events that allow custom logic to be inserted at various stages of task processing. Event handlers are registered via the `@app.event()` decorator.
+
+### Event List
+
+| Event Constant | When | Event.task | Event.handler |
+|---|---|---|---|
+| `APP_BEFORE_RUN` | Start of `run()`, before worker creation | None | None |
+| `APP_AFTER_RUN` | After all workers exit (both normal exit and Ctrl+C) | None | None |
+| `TASK_BEFORE_RUN` | After dequeue, before handler lookup | ✓ | None |
+| `TASK_AFTER_RUN` | After status update, before `with` block exits (fires even with no matching handler) | ✓ | None |
+| `HANDLER_BEFORE_RUN` | Before each handler invocation | ✓ | ✓ |
+| `HANDLER_AFTER_RUN` | After each handler returns (including on exception) | ✓ | ✓ |
+
+### Event Object
+
+Event handlers receive an `Event` instance with the following fields:
+
+- `app: Application` — the Application instance that fired the event
+- `task: Task | None` — the current task (None for app-level events)
+- `handler: Callable | None` — reference to the handler function being invoked (None for app-level and task-level events)
+
+### Registering Event Handlers
+
+```python
+import barkueue as bark
+
+@app.event(bark.APP_BEFORE_RUN)
+def on_setup(event: bark.Event) -> None:
+    # Run initialization before workers start
+    ...
+
+@app.event(bark.TASK_AFTER_RUN)
+def on_task_done(event: bark.Event) -> None:
+    # Run cleanup after a task completes
+    ...
+```
+
+Multiple handlers can be registered for the same event; they execute in registration order. If a handler raises an exception, it is logged but does not prevent subsequent handlers or the main flow from continuing.
+
+### Common Use Cases
+
+**Create DB tables / triggers on startup:**
+
+```python
+@app.event(bark.APP_BEFORE_RUN)
+def setup_db(event: bark.Event) -> None:
+    event.app.sources[0].engine.execute("CREATE TRIGGER ...")
+```
+
+**Retry / scheduled re-enqueue after task completion:**
+
+```python
+@app.event(bark.TASK_AFTER_RUN)
+def retry_on_failure(event: bark.Event) -> None:
+    if event.task.status == 1:
+        event.app.queue.put(bark.Task(
+            event.task.topic,
+            event.task.message,
+            due=datetime.now() + timedelta(seconds=30),
+        ))
+```
+
+**Measure per-handler execution time:**
+
+```python
+@app.event(bark.HANDLER_BEFORE_RUN)
+def start_timer(event: bark.Event) -> None:
+    event._start = time.monotonic()
+
+@app.event(bark.HANDLER_AFTER_RUN)
+def log_elapsed(event: bark.Event) -> None:
+    elapsed = time.monotonic() - event._start
+    print(f"handler {event.handler.__name__} took {elapsed:.2f}s")
+```
+
+### Notes
+
+- Event handlers execute synchronously in the firing thread — blocking operations will stall the worker
+- Return values from event handlers are ignored
+- `handler_before_run` / `handler_after_run` only fire when the topic has matching handlers; the `for` loop body does not execute otherwise
+- `task_after_run` always fires regardless of whether a handler matched the topic
+
 ## To-dos
 
 - [x] fetch-consume event loop
@@ -148,7 +232,7 @@ class MyDataSource(DataSource):
 - [x] datasource diff, merge status update into data sync worker
 - [x] in-memory datasource
 - [ ] retry task
-- [ ] event system (e.g. `@app.init`)
+- [x] event system
 
 ## License
 

@@ -3,6 +3,7 @@ from functools import wraps
 from typing import TypeVar
 
 from barkueue.datasource.type import DataSource
+from barkueue.event import APP_AFTER_RUN, APP_BEFORE_RUN, Event
 from barkueue.queue import DedupPriorityQueue
 from barkueue.task import Task
 from barkueue.util import _logger
@@ -27,6 +28,7 @@ class Application:
     ) -> None:
         self.sources = sources
         self.executors = {}
+        self.events: dict[str, list[Callable[[Event], None]]] = {}
         self.workers = []
         self.worker_count = worker_count
         self.queue = DedupPriorityQueue()
@@ -68,7 +70,47 @@ class Application:
 
         return dec
 
+    def _fire_event(
+        self,
+        name: str,
+        task: Task | None = None,
+        handler: Callable | None = None,
+    ) -> None:
+        """Fire all registered handlers for an event, in registration order.
+
+        Exceptions from event handlers are logged but do NOT propagate.
+        """
+        event = Event(app=self, task=task, handler=handler)
+        for fn in self.events.get(name, []):
+            try:
+                fn(event)
+            except Exception:
+                _logger.exception(
+                    f"Event handler {fn.__name__!r} raised an exception "
+                    f"for event {name!r}"
+                )
+
+    def event(self, name: str):
+        """Decorate a function as an event handler.
+
+        Args:
+            name: Event name constant, e.g. ``APP_BEFORE_RUN``.
+
+        Example::
+
+            @app.event(bark.APP_BEFORE_RUN)
+            def on_setup(event: Event):
+                ...
+        """
+
+        def dec(func: Callable[[Event], None]) -> Callable[[Event], None]:
+            self.events.setdefault(name, []).append(func)
+            return func
+
+        return dec
+
     def run(self) -> None:
+        self._fire_event(APP_BEFORE_RUN)
         try:
             # create fetcher
             self.workers.append(DataSyncWorker(self))
@@ -88,3 +130,4 @@ class Application:
                 worker.stop()
             for worker in self.workers:
                 worker.join(timeout=self.queue_timeout)
+        self._fire_event(APP_AFTER_RUN)

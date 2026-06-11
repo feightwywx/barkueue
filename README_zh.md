@@ -141,14 +141,100 @@ class MyDataSource(DataSource):
         ...
 ```
 
+## 事件系统
+
+barkueue 提供六个生命周期事件，允许在任务处理的各个阶段插入自定义逻辑。事件处理器通过 `@app.event()` 装饰器注册。
+
+### 事件列表
+
+| 事件常量 | 触发时机 | Event.task | Event.handler |
+|---|---|---|---|
+| `APP_BEFORE_RUN` | `run()` 开始，worker 创建之前 | None | None |
+| `APP_AFTER_RUN` | 所有 worker 退出后（正常退出和 Ctrl+C 都会触发） | None | None |
+| `TASK_BEFORE_RUN` | 任务出队后，查找 handler 之前 | ✓ | None |
+| `TASK_AFTER_RUN` | 任务状态更新后，with 块退出前（无匹配 handler 时也会触发） | ✓ | None |
+| `HANDLER_BEFORE_RUN` | 每个 handler 调用之前 | ✓ | ✓ |
+| `HANDLER_AFTER_RUN` | 每个 handler 返回之后（含异常抛出） | ✓ | ✓ |
+
+### Event 对象
+
+事件处理函数接收一个 `Event` 实例，包含以下字段：
+
+- `app: Application` — 触发事件的 Application 实例
+- `task: Task | None` — 当前任务（app 级事件中为 None）
+- `handler: Callable | None` — 当前 handler 函数引用（task 级和 app 级事件中为 None）
+
+### 注册事件处理器
+
+```python
+import barkueue as bark
+
+@app.event(bark.APP_BEFORE_RUN)
+def on_setup(event: bark.Event) -> None:
+    # 在 worker 启动前执行初始化逻辑
+    ...
+
+@app.event(bark.TASK_AFTER_RUN)
+def on_task_done(event: bark.Event) -> None:
+    # 在任务完成后执行收尾逻辑
+    ...
+```
+
+同一事件可注册多个处理器，按注册顺序依次执行。任一处理器抛出异常仅记录日志，不影响后续处理器和主流程。
+
+### 典型场景
+
+**应用启动时自动建表 / 注册触发器：**
+
+```python
+@app.event(bark.APP_BEFORE_RUN)
+def setup_db(event: bark.Event) -> None:
+    event.app.sources[0].engine.execute("CREATE TRIGGER ...")
+```
+
+**任务完成后实现重试 / 定时调度：**
+
+```python
+@app.event(bark.TASK_AFTER_RUN)
+def retry_on_failure(event: bark.Event) -> None:
+    if event.task.status == 1:
+        # 重新入队
+        event.app.queue.put(bark.Task(
+            event.task.topic,
+            event.task.message,
+            due=datetime.now() + timedelta(seconds=30),
+        ))
+```
+
+**记录每个 handler 的执行耗时：**
+
+```python
+@app.event(bark.HANDLER_BEFORE_RUN)
+def start_timer(event: bark.Event) -> None:
+    event._start = time.monotonic()
+
+@app.event(bark.HANDLER_AFTER_RUN)
+def log_elapsed(event: bark.Event) -> None:
+    elapsed = time.monotonic() - event._start
+    print(f"handler {event.handler.__name__} took {elapsed:.2f}s")
+```
+
+### 注意事项
+
+- 事件处理器在触发线程内同步执行——耗时操作会阻塞 worker
+- 事件处理器的返回值被忽略
+- `handler_before_run` / `handler_after_run` 仅在 topic 有匹配 handler 时触发；无匹配时 `for` 循环体不执行
+- `task_after_run` 无论是否有匹配 handler 都会触发
+
 ## To-dos
 
 - [x] fetch-consume 事件循环
 - [x] fetch 间隔控制
 - [x] 数据源diff，将状态更新合并到数据同步工作线程
 - [x] 内存数据源
+- [ ] 定时任务
 - [ ] 任务重试
-- [ ] 事件系统（如 `@app.init`）
+- [x] 事件系统
 
 ## License
 
