@@ -23,6 +23,7 @@ class ArrayDataSource(DataSource):
                 self.tasks.append(task)
 
     def update_status(self, task: Task, status: int) -> None:
+        task.status = status
         self._updated[task.id] = status
 
     def push(self) -> None:

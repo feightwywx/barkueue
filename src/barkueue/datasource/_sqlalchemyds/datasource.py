@@ -36,7 +36,7 @@ class SqlAlchemyDataSource(DataSource):
 
             tasks: list[Task] = [
                 Task(
-                    id=str(x.id),
+                    id=x.id,
                     topic=x.topic,
                     message=x.message,
                     due=x.due,
@@ -48,6 +48,7 @@ class SqlAlchemyDataSource(DataSource):
             self.tasks.extend(tasks)
 
     def update_status(self, task, status) -> None:
+        task.status = status
         with self._lock:
             self._updated[task.id] = status
 

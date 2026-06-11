@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import MutableSequence
 
 import barkueue.datasource as datasource
 from barkueue.application import Application
@@ -13,12 +13,13 @@ from barkueue.event import (
     Event,
 )
 from barkueue.task import Task
+from barkueue.util.schedule import Scheduler
 
 _current_app = None
 
 
 def app(
-    sources: Iterable[DataSource] = [],
+    sources: MutableSequence[DataSource] | None = None,
     max_workers: int = 1,
     queue_timeout: float = 5,
     fetch_interval: float = 0,
@@ -32,7 +33,8 @@ def app(
     calls will return the same instance.
 
     Args:
-        sources: Iterable of DataSource instances to initialize the application with
+        sources: DataSource instances to initialize the application with.
+            Defaults to an empty list.
         max_workers: Maximum number of worker threads to use
         queue_timeout: Timeout in seconds for the task queue's blocking get
         fetch_interval: Minimum interval in seconds between DataSyncWorker fetch cycles
@@ -41,6 +43,8 @@ def app(
         Application: The singleton Application instance
     """
     global _current_app
+    if sources is None:
+        sources = []
     if _current_app is None:
         _current_app = Application(
             sources=sources,
@@ -57,6 +61,7 @@ __all__ = [
     "app",
     "Application",
     "DataSource",
+    "Scheduler",
     "Task",
     "datasource",
     "Event",

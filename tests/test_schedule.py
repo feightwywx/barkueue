@@ -8,9 +8,8 @@ from conftest import wait_until
 from croniter import CroniterBadCronError
 
 from barkueue.application import Application
-from barkueue.datasource import ArrayDataSource
-from barkueue.schedule import _next_cron_time
 from barkueue.task import Task
+from barkueue.util.schedule import Scheduler, _next_cron_time
 
 
 class TestNextCronTime:
@@ -43,40 +42,40 @@ class TestNextCronTime:
 class TestSchedule:
     def test_first_task_enqueued(self):
         app = Application(sources=[])
+        scheduler = Scheduler(app)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             pass
 
-        ds = ArrayDataSource([])
-        app.schedule("* * * * *", Task("test", "msg", adapter=ds))
-        assert app.queue.qsize() == 1
+        scheduler.add("* * * * *", Task("test", "msg"))
+        # Task is in the scheduler's internal datasource
+        assert len(scheduler.datasource._internal) == 1
 
     def test_first_task_due_is_in_future(self):
         app = Application(sources=[])
+        scheduler = Scheduler(app)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             pass
 
         before = datetime.now()
-        ds = ArrayDataSource([])
-        app.schedule("30 14 * * *", Task("test", "msg", adapter=ds))
-        task = app.queue.get(timeout=1)
+        scheduler.add("30 14 * * *", Task("test", "msg"))
+        task = scheduler.datasource._internal[0]
         # due must be in the future
         assert task.due >= before
 
     def test_reschedule_after_completion(self):
         processed = []
-        ds = ArrayDataSource([])
-        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
+        app = Application(sources=[], fetch_interval=0.1, queue_timeout=0.2)
+        scheduler = Scheduler(app)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             processed.append(task.message)
 
-        tpl = Task("test", "msg", adapter=ds)
-        app.schedule("* * * * *", tpl)
+        scheduler.add("* * * * * *", Task("test", "msg"))
 
         t = threading.Thread(target=app.run)
         t.start()
@@ -91,15 +90,14 @@ class TestSchedule:
 
     def test_chain_two_occurrences(self):
         processed = []
-        ds = ArrayDataSource([])
-        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
+        app = Application(sources=[], fetch_interval=0.1, queue_timeout=0.2)
+        scheduler = Scheduler(app)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             processed.append(task.message)
 
-        tpl = Task("test", "msg", adapter=ds)
-        app.schedule("* * * * *", tpl)
+        scheduler.add("* * * * * *", Task("test", "msg"))
 
         t = threading.Thread(target=app.run)
         t.start()
@@ -115,10 +113,12 @@ class TestSchedule:
         scheduled_count = [0]
         other_count = [0]
 
-        # The one-shot task goes through ArrayDataSource
+        # The one-shot task goes through a separate ArrayDataSource
         internal = [Task("other", "unrelated", due=datetime(2020, 1, 1))]
+        from barkueue.datasource import ArrayDataSource
         ds = ArrayDataSource(internal)
         app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
+        scheduler = Scheduler(app)
 
         @app.handler("scheduled")
         def h_sched(app, task):  # noqa: ARG001
@@ -128,8 +128,7 @@ class TestSchedule:
         def h_other(app, task):  # noqa: ARG001
             other_count[0] += 1
 
-        tpl = Task("scheduled", "cron_msg", adapter=ds)
-        app.schedule("* * * * *", tpl)
+        scheduler.add("* * * * * *", Task("scheduled", "cron_msg"))
 
         t = threading.Thread(target=app.run)
         t.start()
@@ -146,15 +145,14 @@ class TestSchedule:
 
     def test_new_task_has_same_topic_and_message(self):
         tasks_seen = []
-        ds = ArrayDataSource([])
-        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
+        app = Application(sources=[], fetch_interval=0.1, queue_timeout=0.2)
+        scheduler = Scheduler(app)
 
         @app.handler("my.topic")
         def h(app, task):  # noqa: ARG001
             tasks_seen.append((task.topic, task.message, task.id))
 
-        tpl = Task("my.topic", "payload", adapter=ds)
-        app.schedule("* * * * *", tpl)
+        scheduler.add("* * * * * *", Task("my.topic", "payload"))
 
         t = threading.Thread(target=app.run)
         t.start()

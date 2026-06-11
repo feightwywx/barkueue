@@ -62,18 +62,14 @@ app.run()
 
 ### Built-in DataSources
 
-barkueue ships with 2 datasources: an in-memory datasource and a SQLAlchemy-based ORM persistent datasource.
-
-**ArrayDataSource** — in-memory datasource.
+**ArrayDataSource** — in-memory datasource backed by a `MutableSequence[Task]`.
 
 ```python
 arr: list[bark.Task] = [bark.Task("order.paid", '{"id":1}')]
 ds = bark.datasource.ArrayDataSource(arr)
 ```
 
-`arr` serves as both input and output — `push()` writes `status` back to the `Task` objects in `arr`.
-
-**SqlAlchemyDataSource** — persists to the `barkueue_task` table. barkueue does not depend on SQLAlchemy; install it separately as needed.
+**SqlAlchemyDataSource** — persists to the `barkueue_task` table. barkueue does not depend on SQLAlchemy; install it separately.
 
 ```python
 from sqlalchemy import create_engine
@@ -81,40 +77,64 @@ engine = create_engine("mssql+pyodbc://...")
 ds = bark.datasource.SqlAlchemyDataSource(engine)
 ```
 
-Table schema: `id` (int PK), `topic`, `message`, `due`, `status`. `fetch()` pulls rows where `status IS NULL`, `push()` performs a batch UPDATE.
+Table schema: `id` (nvarchar(36) PK), `topic`, `message`, `due`, `status`.
+
+### Cron Scheduling
+
+```python
+import barkueue as bark
+
+app = bark.app([])
+scheduler = bark.Scheduler(app)
+
+@app.handler("report.gen")
+def gen_report(app: bark.Application, task: bark.Task) -> None:
+    print(f"Generating report: {task.message}")
+
+# Every 5 seconds (6-field cron with seconds)
+scheduler.add("* * * * * */5", bark.Task("report.gen", "weekly_report"))
+
+# Every day at 9:00 AM
+scheduler.add("0 9 * * *", bark.Task("cleanup", "daily_cleanup"))
+
+app.run()
+```
+
+**`bark.Scheduler(app)`** — creates a scheduler with an internal `ArrayDataSource`, auto-appends it to `app.sources`.
+
+**`scheduler.add(cron, task)`** — register a recurring task. The template task's `topic` and `message` are reused for each occurrence; `due` and `id` are overwritten.
+
+Supports both 5-field (`"minute hour dom month dow"`) and 6-field (`"minute hour dom month dow second"`) cron. Depends on `croniter`. Schedules are not persisted across restarts.
 
 ### Extending DataSource
 
-`DataSource` is the abstraction layer between barkueue and external storage. It defines three methods:
+`DataSource` is a [Protocol](https://docs.python.org/3/library/typing.html#typing.Protocol) — any object with a `tasks` attribute and the three methods below qualifies.
 
 | Method | Description |
 |--------|-------------|
-| `fetch()` | Populate `self.tasks` with unprocessed tasks; must set `task.adapter = self` |
-| `update_status(task, status)` | Buffer a status update — do **not** persist immediately |
+| `fetch()` | Populate `self.tasks` with tasks where `status IS NULL` **and `due <= now`**; must set `task.adapter = self` |
+| `update_status(task, status)` | Set `task.status` directly **and** buffer the update. The direct write prevents the task from being re-fetched before `push()` flushes the buffer. |
 | `push()` | Flush buffered status updates to storage in a batch |
-
-`DataSource` is a [Protocol](https://docs.python.org/3/library/typing.html#typing.Protocol). Any object with the above three methods and a `tasks` attribute satisfies the protocol — no explicit inheritance required.
 
 #### Status Update Flow
 
-When a Worker finishes a task, it calls `task.update_status(status)`, which delegates to `adapter.update_status()`. For performance, `update_status()` **only writes to an in-memory buffer** (e.g. a dict); the actual persistence happens in `push()`.
+Worker calls `task.update_status(status)` → delegates to `adapter.update_status()`, which:
 
-Each cycle, the `DataSyncWorker` operates in this order:
+1. **Sets `task.status` directly** — immediately visible when `fetch()` scans for `status is None`.
+2. **Buffers the update** for batch persistence in `push()`.
+
+DataSyncWorker cycle order:
 
 ```
-ds.push()   → flush buffered status updates from the previous cycle
-ds.fetch()  → reload unprocessed tasks
+ds.push()   → flush buffered updates from previous cycle
+ds.fetch()  → reload tasks (status IS NULL AND due <= now)
 ```
-
-Push-before-fetch ensures completed tasks are not re-fetched. Status updates lost due to a process crash before `push()` is a known trade-off — handlers that require idempotency should account for this.
 
 #### Thread Safety
 
-`push()` implementations should use an atomic-swap pattern: swap out the buffer dict under a lock, then perform I/O outside the lock. Worker threads only need the lock to write to the new dict and are never blocked by I/O.
+Use atomic-swap in `push()`: swap the buffer dict under a lock, then perform I/O outside the lock.
 
 #### Custom DataSource
-
-Implement the four protocol members:
 
 ```python
 from barkueue.datasource.type import DataSource
@@ -126,18 +146,18 @@ class MyDataSource(DataSource):
     def __init__(self, ...) -> None:
         self.tasks = []
         self._updated: dict[str, int] = {}
-        ...
 
     def fetch(self) -> None:
-        """Pull tasks with status None, set adapter=self, append to tasks."""
+        """Pull tasks with status None and due <= now, set adapter=self."""
         ...
 
     def update_status(self, task: Task, status: int) -> None:
-        """Buffer the update — do not write to storage directly."""
+        """Set task.status directly AND buffer the update."""
+        task.status = status
         self._updated[task.id] = status
 
     def push(self) -> None:
-        """Flush buffered updates in self._updated to storage."""
+        """Flush buffered updates to storage."""
         ...
 ```
 
@@ -205,61 +225,12 @@ def retry_on_failure(event: bark.Event) -> None:
         ))
 ```
 
-**Measure per-handler execution time:**
-
-```python
-@app.event(bark.HANDLER_BEFORE_RUN)
-def start_timer(event: bark.Event) -> None:
-    event._start = time.monotonic()
-
-@app.event(bark.HANDLER_AFTER_RUN)
-def log_elapsed(event: bark.Event) -> None:
-    elapsed = time.monotonic() - event._start
-    print(f"handler {event.handler.__name__} took {elapsed:.2f}s")
-```
-
 ### Notes
 
 - Event handlers execute synchronously in the firing thread — blocking operations will stall the worker
 - Return values from event handlers are ignored
 - `handler_before_run` / `handler_after_run` only fire when the topic has matching handlers; the `for` loop body does not execute otherwise
 - `task_after_run` always fires regardless of whether a handler matched the topic
-
-## Cron Scheduling
-
-`app.schedule(cron, task)` creates a recurring task based on a cron expression. The first occurrence is enqueued immediately with `due` set to the next cron match; after each completion the next occurrence is automatically enqueued.
-
-```python
-import barkueue as bark
-
-app = bark.app([ds])
-
-@app.handler("report.gen")
-def gen_report(app: bark.Application, task: bark.Task) -> None:
-    print(f"Generating report: {task.message}")
-
-# Every 5 minutes
-app.schedule("*/5 * * * *", bark.Task("report.gen", "weekly_report"))
-
-# Every day at 9:00 AM
-app.schedule("0 9 * * *", bark.Task("cleanup", "daily_cleanup"))
-
-app.run()
-```
-
-### How It Works
-
-- On the first `schedule()` call, a `TASK_AFTER_RUN` event handler is registered first, then the next cron time is computed and the first task is enqueued (handler-before-enqueue prevents a race where the worker completes the task before the handler is registered)
-- After each completion, the handler creates a new `Task` (same `topic` and `message`, `due` set to the next cron match) and enqueues it, forming an infinite chain
-- Multiple schedules are distinguished by Python object identity (`is`) — they never interfere with each other
-- New tasks automatically inherit the template's `adapter` so status updates work correctly
-
-### Notes
-
-- Depends on the `croniter` library for cron expression parsing; supports standard 5-field cron
-- Cancellation is not supported — once scheduled, the task fires until the app stops
-- Each occurrence is a fresh `Task` with a unique UUID, so `DedupPriorityQueue` deduplication does not interfere
-- Schedules are not persisted — restarting the app loses all schedules
 
 ## To-dos
 

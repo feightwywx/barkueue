@@ -7,7 +7,7 @@ from barkueue.datasource._sqlalchemyds.datasource import SqlAlchemyDataSource
 
 def _insert_row(session, **kwargs):
     defaults = {
-        "id": 1,
+        "id": "1",
         "topic": "test",
         "message": "hello",
         "due": datetime(2020, 1, 1),
@@ -32,8 +32,8 @@ class TestFetch:
     def test_fetches_null_status(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)
         with ds._session() as s:
-            _insert_row(s, id=1, status=None)
-            _insert_row(s, id=2, status=0)
+            _insert_row(s, id="1", status=None)
+            _insert_row(s, id="2", status=0)
 
         ds.fetch()
         assert len(ds.tasks) == 1
@@ -42,7 +42,7 @@ class TestFetch:
     def test_sets_adapter(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)
         with ds._session() as s:
-            _insert_row(s, id=1)
+            _insert_row(s, id="1")
 
         ds.fetch()
         assert ds.tasks[0].adapter is ds
@@ -52,7 +52,7 @@ class TestPush:
     def test_updates_db_status(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)
         with ds._session() as s:
-            _insert_row(s, id=1, status=None)
+            _insert_row(s, id="1", status=None)
 
         ds.fetch()
         task = ds.tasks[0]
@@ -61,16 +61,16 @@ class TestPush:
 
         with ds._session() as s:
             result = s.execute(
-                text("SELECT status FROM barkueue_task WHERE id = 1")
+                text("SELECT status FROM barkueue_task WHERE id = '1'")
             ).scalar()
         assert result == 0
 
     def test_batch_updates(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)
         with ds._session() as s:
-            _insert_row(s, id=1)
-            _insert_row(s, id=2)
-            _insert_row(s, id=3)
+            _insert_row(s, id="1")
+            _insert_row(s, id="2")
+            _insert_row(s, id="3")
 
         ds.fetch()
         assert len(ds.tasks) == 3
@@ -79,7 +79,7 @@ class TestPush:
         ds.push()
 
         with ds._session() as s:
-            for row_id in [1, 2, 3]:
+            for row_id in ["1", "2", "3"]:
                 status = s.execute(
                     text("SELECT status FROM barkueue_task WHERE id = :id"),
                     {"id": row_id},
@@ -89,7 +89,7 @@ class TestPush:
     def test_last_update_wins(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)
         with ds._session() as s:
-            _insert_row(s, id=1)
+            _insert_row(s, id="1")
 
         ds.fetch()
         ds.update_status(ds.tasks[0], 1)
@@ -98,7 +98,7 @@ class TestPush:
 
         with ds._session() as s:
             status = s.execute(
-                text("SELECT status FROM barkueue_task WHERE id = 1")
+                text("SELECT status FROM barkueue_task WHERE id = '1'")
             ).scalar()
         assert status == 0
 
@@ -111,7 +111,7 @@ class TestRefetch:
     def test_pushed_tasks_not_refetched(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)
         with ds._session() as s:
-            _insert_row(s, id=1)
+            _insert_row(s, id="1")
 
         ds.fetch()
         assert len(ds.tasks) == 1

@@ -62,18 +62,14 @@ app.run()
 
 ### 预置数据源
 
-barkueue 自带2种数据源：内存数据源和基于SqlAlchemy的ORM持久化数据源。
-
-**ArrayDataSource** — 内存数据源。
+**ArrayDataSource** — 内存数据源，底层为 `MutableSequence[Task]`。
 
 ```python
 arr: list[bark.Task] = [bark.Task("order.paid", '{"id":1}')]
 ds = bark.datasource.ArrayDataSource(arr)
 ```
 
-`arr` 既是输入也是输出——`push()` 会回写 `status` 到 `arr` 中的 `Task` 对象。
-
-**SqlAlchemyDataSource** — 持久化到 `barkueue_task` 表。barkueue 不依赖 SQLAlchemy，需要按需安装。
+**SqlAlchemyDataSource** — 持久化到 `barkueue_task` 表。barkueue 不依赖 SQLAlchemy，需按需安装。
 
 ```python
 from sqlalchemy import create_engine
@@ -81,44 +77,68 @@ engine = create_engine("mssql+pyodbc://...")
 ds = bark.datasource.SqlAlchemyDataSource(engine)
 ```
 
-表结构：`id` (int PK), `topic`, `message`, `due`, `status`。`fetch()` 拉取 `status IS NULL` 的行，`push()` 批量 UPDATE。
+表结构：`id` (nvarchar(36) PK), `topic`, `message`, `due`, `status`。
+
+### 定时任务
+
+```python
+import barkueue as bark
+
+app = bark.app([])
+scheduler = bark.Scheduler(app)
+
+@app.handler("report.gen")
+def gen_report(app: bark.Application, task: bark.Task) -> None:
+    print(f"生成报告: {task.message}")
+
+# 每 5 秒执行（6 字段 cron 支持秒）
+scheduler.add("* * * * * */5", bark.Task("report.gen", "weekly_report"))
+
+# 每天早上 9:00 执行
+scheduler.add("0 9 * * *", bark.Task("cleanup", "daily_cleanup"))
+
+app.run()
+```
+
+**`bark.Scheduler(app)`** — 创建调度器，内部持有 `ArrayDataSource` 并自动追加到 `app.sources`。
+
+**`scheduler.add(cron, task)`** — 注册定时任务。模板 task 的 `topic` 和 `message` 每次复用；`due` 和 `id` 会被覆盖。
+
+支持 5 字段（`"分 时 日 月 周"`）和 6 字段（`"分 时 日 月 周 秒"`）cron。依赖 `croniter`。调度不持久化，重启后丢失。
 
 ### 数据源拓展
 
-`DataSource` 是 barkueue 与外部存储之间的抽象层，定义了三个方法：
+`DataSource` 是 [Protocol](https://docs.python.org/3/library/typing.html#typing.Protocol) — 具有 `tasks` 属性和以下三个方法的对象即满足协议。
 
 | 方法 | 说明 |
 |------|------|
-| `fetch()` | 拉取未处理的任务填充 `self.tasks`，须将 `task.adapter` 设为 `self` |
-| `update_status(task, status)` | 缓存状态更新，**不立即持久化** |
-| `push()` | 将缓存的状态更新批量刷入存储 |
-
-`DataSource` 是 [Protocol](https://docs.python.org/3/library/typing.html#typing.Protocol)，任何具有上述三个方法与 `tasks` 属性的对象均满足协议，无需显式继承。
+| `fetch()` | 拉取 `status IS NULL` **且 `due <= now`** 的任务填充 `self.tasks`；须设 `task.adapter = self` |
+| `update_status(task, status)` | **同时**设置 `task.status` 并缓存更新。直接写入防止任务在 `push()` 之前被重复拉取。 |
+| `push()` | 将缓存的更新批量刷入存储 |
 
 #### 状态更新流程
 
-Worker 线程完成任务后调用 `task.update_status(status)`，该方法委托给 `adapter.update_status()`。出于性能考虑，`update_status()` **仅写入内存缓存**（如 dict），真正的持久化发生在 `push()`。
+Worker 调用 `task.update_status(status)` → 委托给 `adapter.update_status()`，该方法：
 
-`DataSyncWorker` 每轮循环按以下顺序操作：
+1. **直接设置 `task.status`** — 使 `fetch()` 扫描 `status is None` 时立即可见。
+2. **缓存更新**，供 `push()` 批量持久化。
+
+DataSyncWorker 循环顺序：
 
 ```
-ds.push()   → 将上一轮缓存的状态更新批量刷入存储
-ds.fetch()  → 重新拉取未处理的任务
+ds.push()   → 将上一轮缓存的更新刷入存储
+ds.fetch()  → 拉取任务（status IS NULL AND due <= now）
 ```
-
-先 push 后 fetch 可确保已完成的 task 不会被重复拉取。因进程崩溃导致未 push 的更新丢失是已知的——对幂等性有要求的 handler 需自行处理。
 
 #### 线程安全
 
-`push()` 实现应采用 atomic-swap 模式：在锁内将缓存 dict 换出，释放锁后再做 I/O。Worker 线程只需加锁写入新 dict，不会被 push 阻塞。
+`push()` 采用 atomic-swap 模式：在锁内换出缓存 dict，释放锁后再做 I/O。
 
 #### 自定义 DataSource
 
-实现协议中的四个成员即可：
-
 ```python
-from src.datasource.type import DataSource
-from src.task import Task
+from barkueue.datasource.type import DataSource
+from barkueue.task import Task
 
 class MyDataSource(DataSource):
     tasks: list[Task]
@@ -126,18 +146,18 @@ class MyDataSource(DataSource):
     def __init__(self, ...) -> None:
         self.tasks = []
         self._updated: dict[str, int] = {}
-        ...
 
     def fetch(self) -> None:
-        """拉取 status 为 None 的 task，设 adapter=self 后加入 tasks。"""
+        """拉取 status 为 None 且 due <= now 的任务，设 adapter=self。"""
         ...
 
     def update_status(self, task: Task, status: int) -> None:
-        """缓存状态更新，不直接写存储。"""
+        """同时设置 task.status 并缓存更新。"""
+        task.status = status
         self._updated[task.id] = status
 
     def push(self) -> None:
-        """将 self._updated 中的更新批量刷入存储。"""
+        """将缓存的更新批量刷入存储。"""
         ...
 ```
 
@@ -206,61 +226,12 @@ def retry_on_failure(event: bark.Event) -> None:
         ))
 ```
 
-**记录每个 handler 的执行耗时：**
-
-```python
-@app.event(bark.HANDLER_BEFORE_RUN)
-def start_timer(event: bark.Event) -> None:
-    event._start = time.monotonic()
-
-@app.event(bark.HANDLER_AFTER_RUN)
-def log_elapsed(event: bark.Event) -> None:
-    elapsed = time.monotonic() - event._start
-    print(f"handler {event.handler.__name__} took {elapsed:.2f}s")
-```
-
 ### 注意事项
 
 - 事件处理器在触发线程内同步执行——耗时操作会阻塞 worker
 - 事件处理器的返回值被忽略
 - `handler_before_run` / `handler_after_run` 仅在 topic 有匹配 handler 时触发；无匹配时 `for` 循环体不执行
 - `task_after_run` 无论是否有匹配 handler 都会触发
-
-## 定时任务
-
-`app.schedule(cron, task)` 基于 cron 表达式创建周期性任务。首次触发立即入队（`due` 设为下一次 cron 匹配时间），之后每次任务完成后自动排定下一次入队。
-
-```python
-import barkueue as bark
-
-app = bark.app([ds])
-
-@app.handler("report.gen")
-def gen_report(app: bark.Application, task: bark.Task) -> None:
-    print(f"生成报告: {task.message}")
-
-# 每 5 分钟执行一次
-app.schedule("*/5 * * * *", bark.Task("report.gen", "weekly_report"))
-
-# 每天早上 9:00 执行
-app.schedule("0 9 * * *", bark.Task("cleanup", "daily_cleanup"))
-
-app.run()
-```
-
-### 工作原理
-
-- 首次调用 `schedule()` 时，先注册 `TASK_AFTER_RUN` 事件处理器，再计算下一次 cron 时间并入队首个任务（先注册后入队，避免竞态）
-- 每次任务完成后，处理器创建新的 `Task`（相同 `topic` 和 `message`，`due` 为下一次 cron 匹配时间）并入队，形成无限链式调度
-- 同一 schedule 的多次触发通过 Python 对象标识（`is`）精确匹配，互不干扰
-- 新任务自动继承模板的 `adapter`，确保状态更新正常工作
-
-### 注意事项
-
-- 依赖 `croniter` 库解析 cron 表达式，支持标准 5 字段 cron
-- 不支持取消调度——调用 `schedule()` 后将持续触发直到 app 停止
-- 每次触发生成全新 Task（唯一 UUID），因此不会被 `DedupPriorityQueue` 去重
-- 若 app 重启，所有调度丢失（不持久化）
 
 ## To-dos
 

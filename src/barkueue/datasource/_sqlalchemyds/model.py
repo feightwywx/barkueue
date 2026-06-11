@@ -11,7 +11,7 @@ class Base(DeclarativeBase):
 class ORMTaskTable(Base):
     __tablename__ = "barkueue_task"
 
-    id: Mapped[int] = mapped_column(Integer(), primary_key=True, nullable=False)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, nullable=False)
     topic: Mapped[str] = mapped_column(String(255), nullable=True)
     message: Mapped[str] = mapped_column(Text, nullable=True)
     due: Mapped[datetime] = mapped_column(DateTime(), nullable=True)
