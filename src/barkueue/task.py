@@ -23,7 +23,7 @@ class Task(Generic[DS]):
 
     def update_status(self, status: int):
         if self.adapter is None:
-            raise RuntimeError(f"task {id} is not bound to an adapter")
+            raise RuntimeError(f"task {self.id} is not bound to an adapter")
         return self.adapter.update_status(self, status)
 
     def __lt__(self, other: Task) -> bool:

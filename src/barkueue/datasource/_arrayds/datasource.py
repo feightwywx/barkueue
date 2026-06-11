@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableSequence
+from datetime import datetime
 
 from barkueue.datasource.type import DataSource
 from barkueue.task import Task
@@ -15,8 +16,9 @@ class ArrayDataSource(DataSource):
         self._updated: dict[str, int] = {}
 
     def fetch(self) -> None:
+        now = datetime.now()
         for task in self._internal:
-            if task.status is None:
+            if task.status is None and task.due <= now:
                 task.adapter = self
                 self.tasks.append(task)
 

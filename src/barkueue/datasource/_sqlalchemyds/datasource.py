@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableSequence
+from datetime import datetime
 from threading import Lock
 from typing import TYPE_CHECKING
 
@@ -27,7 +28,10 @@ class SqlAlchemyDataSource(DataSource):
 
     def fetch(self) -> None:
         with self._session() as s:
-            query = select(ORMTaskTable).where(ORMTaskTable.status.is_(None))
+            query = select(ORMTaskTable).where(
+                ORMTaskTable.status.is_(None),
+                ORMTaskTable.due <= datetime.now(),
+            )
             task_results = s.execute(query).scalars().all()
 
             tasks: list[Task] = [
