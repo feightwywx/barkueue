@@ -1,12 +1,13 @@
 import contextlib
 import threading
-import time
 from datetime import datetime
+
+from conftest import wait_until
 
 from barkueue.application import Application
 from barkueue.datasource import ArrayDataSource
 from barkueue.task import Task
-from barkueue.worker import DataSyncWorker, Worker
+from barkueue.worker import Worker
 
 
 class TestGetTopicHandlers:
@@ -78,80 +79,65 @@ class TestGetTopicHandlers:
 
 
 class TestWorkerLoop:
-    """Integration tests that start/stop real Worker threads."""
-
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
+    """Integration tests that exercise the full Application.run() pipeline."""
 
     def test_worker_processes_task_successfully(self):
-        processed = []
-
-        app = Application(sources=[], queue_timeout=0.1)
+        results = []
+        internal = [Task("test", "hello", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
-            processed.append(task.message)
+            results.append(task.message)
 
-        # Pre-load the queue with a task
-        ds = ArrayDataSource([])
-        task = Task("test", "hello", adapter=ds)
-        app.queue.put(task)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(results) == 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(processed) == 1)
-        worker.stop()
-        worker.join(timeout=1)
-
-        assert processed == ["hello"]
+        assert results == ["hello"]
 
     def test_worker_marks_failed_task_status_1(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             raise RuntimeError("fail")
 
-        task = Task("test", "msg")
-        app.queue.put(task)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: internal[0].status is not None)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
-        ds = ArrayDataSource([])
-        task.adapter = ds
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: bool(ds._updated))
-        worker.stop()
-        worker.join(timeout=1)
-
-        ds.push()
-        assert ds._updated == {}
+        assert internal[0].status == 1
 
     def test_worker_marks_no_handler_task_failed(self):
-        app = Application(sources=[], queue_timeout=0.1)
-
-        task = Task("unknown_topic", "msg")
-        app.queue.put(task)
-
-        internal = [task]
+        internal = [Task("unknown_topic", "msg", due=datetime(2020, 1, 1))]
         ds = ArrayDataSource(internal)
-        task.adapter = ds
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+        # No handlers registered — task should be marked failed
 
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: bool(ds._updated))
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: internal[0].status is not None)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
-        ds.push()
         assert internal[0].status == 1
 
     def test_multiple_handlers_all_succeed(self):
         results = []
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test.msg", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
 
         @app.handler("test.*")
         def h1(app, task):  # noqa: ARG001
@@ -161,22 +147,20 @@ class TestWorkerLoop:
         def h2(app, task):  # noqa: ARG001
             results.append("h2")
 
-        ds = ArrayDataSource([])
-        task = Task("test.msg", "msg")
-        task.adapter = ds
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(results) == 2)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(results) == 2)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert results == ["h1", "h2"]
 
     def test_multiple_handlers_one_fails_still_marks_failed(self):
         results = []
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test.msg", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
 
         @app.handler("test.*")
         def h1(app, task):  # noqa: ARG001
@@ -186,19 +170,14 @@ class TestWorkerLoop:
         def h2(app, task):  # noqa: ARG001
             results.append("h2")
 
-        internal = [Task("test.msg", "msg")]
-        ds = ArrayDataSource(internal)
-        task = internal[0]
-        task.adapter = ds
-        app.queue.put(task)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(results) == 1 and internal[0].status is not None)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(results) == 1)
-        worker.stop()
-        worker.join(timeout=1)
-
-        ds.push()
+        assert results == ["h2"]
         assert internal[0].status == 1
 
     def test_worker_stop(self):
@@ -213,12 +192,6 @@ class TestWorkerLoop:
 
 class TestApplicationRun:
     """Full integration: Application.run() with real workers."""
-
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
 
     def test_run_processes_tasks(self):
         internal = [Task("test.msg", "hello", due=datetime(2020, 1, 1))]
@@ -235,7 +208,7 @@ class TestApplicationRun:
         t = threading.Thread(target=app.run)
         t.start()
 
-        self._wait_for(lambda: len(results) == 1 and internal[0].status == 0, timeout=5)
+        wait_until(lambda: len(results) == 1 and internal[0].status == 0, timeout=5)
 
         # Stop all workers
         for w in app.workers:
@@ -246,42 +219,46 @@ class TestApplicationRun:
         assert internal[0].status == 0
 
 class TestDataSyncWorkerLoop:
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
+    """Integration tests for fetch and push cycles via Application.run()."""
 
     def test_fetches_tasks_into_queue(self):
+        results = []
         internal = [
             Task("test", "hello", due=datetime(2020, 1, 1)),
             Task("test", "world", due=datetime(2020, 1, 2)),
         ]
         ds = ArrayDataSource(internal)
-        app = Application(sources=[ds])
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
 
-        # Start DataSyncWorker, let it run one cycle
-        dsw = DataSyncWorker(app)
-        dsw.start()
-        self._wait_for(lambda: app.queue.qsize() >= 2)
-        dsw.stop()
-        dsw.join(timeout=1)
+        @app.handler("test")
+        def h(app, task):  # noqa: ARG001
+            results.append(task.message)
 
-        assert app.queue.qsize() == 2
+        t = threading.Thread(target=app.run)
+        t.start()
+        # Wait for both tasks to be processed AND their status pushed
+        wait_until(lambda: all(t.status is not None for t in internal))
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
+
+        assert sorted(results) == sorted(["hello", "world"])
+        assert all(t.status == 0 for t in internal)
 
     def test_pushes_before_fetch(self):
-        internal = [Task("test", "msg")]
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
         ds = ArrayDataSource(internal)
-        app = Application(sources=[ds], fetch_interval=0)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
 
-        # Pre-buffer a status update without pushing
-        ds.update_status(internal[0], 0)
+        @app.handler("test")
+        def h(app, task):  # noqa: ARG001
+            pass  # handler succeeds, status becomes 0
 
-        dsw = DataSyncWorker(app)
-        dsw.start()
-        # Wait for push to happen (status becomes non-None in _internal)
-        self._wait_for(lambda: internal[0].status == 0)
-        dsw.stop()
-        dsw.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: internal[0].status is not None)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert internal[0].status == 0

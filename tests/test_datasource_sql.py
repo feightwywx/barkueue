@@ -37,7 +37,7 @@ class TestFetch:
 
         ds.fetch()
         assert len(ds.tasks) == 1
-        assert ds.tasks[0].id == 1
+        assert ds.tasks[0].id == "1"
 
     def test_sets_adapter(self, sql_engine):
         ds = SqlAlchemyDataSource(sql_engine)

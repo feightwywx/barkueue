@@ -22,7 +22,7 @@ class SqlAlchemyDataSource(DataSource):
         self.engine = engine
         self._session = sessionmaker(bind=engine)
         self.tasks = []
-        self._updated: dict[int, int] = {}
+        self._updated: dict[str, int] = {}
         self._lock = Lock()
 
     def fetch(self) -> None:
@@ -32,7 +32,7 @@ class SqlAlchemyDataSource(DataSource):
 
             tasks: list[Task] = [
                 Task(
-                    id=x.id,
+                    id=str(x.id),
                     topic=x.topic,
                     message=x.message,
                     due=x.due,

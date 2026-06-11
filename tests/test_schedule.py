@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import time
+import threading
 from datetime import datetime
 
 import pytest
+from conftest import wait_until
 from croniter import CroniterBadCronError
 
 from barkueue.application import Application
 from barkueue.datasource import ArrayDataSource
 from barkueue.schedule import _next_cron_time
 from barkueue.task import Task
-from barkueue.worker import Worker
 
 
 class TestNextCronTime:
@@ -41,12 +41,6 @@ class TestNextCronTime:
 
 
 class TestSchedule:
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
-
     def test_first_task_enqueued(self):
         app = Application(sources=[])
 
@@ -73,52 +67,58 @@ class TestSchedule:
         assert task.due >= before
 
     def test_reschedule_after_completion(self):
-        app = Application(sources=[], queue_timeout=0.1)
         processed = []
+        ds = ArrayDataSource([])
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             processed.append(task.message)
 
-        ds = ArrayDataSource([])
         tpl = Task("test", "msg", adapter=ds)
         app.schedule("* * * * *", tpl)
 
-        worker = Worker(app)
-        worker.start()
+        t = threading.Thread(target=app.run)
+        t.start()
         # Wait for the first task AND the follow-up to be processed
-        self._wait_for(lambda: len(processed) >= 2)
-        worker.stop()
-        worker.join(timeout=1)
+        wait_until(lambda: len(processed) >= 2)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         # At least 2 tasks were processed: initial + one follow-up
         assert len(processed) >= 2
 
     def test_chain_two_occurrences(self):
-        app = Application(sources=[], queue_timeout=0.1)
         processed = []
+        ds = ArrayDataSource([])
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
 
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             processed.append(task.message)
 
-        ds = ArrayDataSource([])
         tpl = Task("test", "msg", adapter=ds)
         app.schedule("* * * * *", tpl)
 
-        worker = Worker(app)
-        worker.start()
+        t = threading.Thread(target=app.run)
+        t.start()
         # Chain should keep producing tasks — wait for 3 occurrences
-        self._wait_for(lambda: len(processed) >= 3)
-        worker.stop()
-        worker.join(timeout=1)
+        wait_until(lambda: len(processed) >= 3)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert len(processed) >= 3
 
     def test_unrelated_task_does_not_trigger_reschedule(self):
-        app = Application(sources=[], queue_timeout=0.1)
         scheduled_count = [0]
         other_count = [0]
+
+        # The one-shot task goes through ArrayDataSource
+        internal = [Task("other", "unrelated", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
 
         @app.handler("scheduled")
         def h_sched(app, task):  # noqa: ARG001
@@ -128,21 +128,16 @@ class TestSchedule:
         def h_other(app, task):  # noqa: ARG001
             other_count[0] += 1
 
-        ds = ArrayDataSource([])
         tpl = Task("scheduled", "cron_msg", adapter=ds)
         app.schedule("* * * * *", tpl)
 
-        # Also enqueue an unrelated one-shot task
-        app.queue.put(Task("other", "unrelated", adapter=ds))
-
-        worker = Worker(app)
-        worker.start()
+        t = threading.Thread(target=app.run)
+        t.start()
         # Wait until both are processed at least once
-        self._wait_for(
-            lambda: scheduled_count[0] >= 1 and other_count[0] >= 1
-        )
-        worker.stop()
-        worker.join(timeout=1)
+        wait_until(lambda: scheduled_count[0] >= 1 and other_count[0] >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         # The "other" task should have run exactly once (no reschedule)
         assert other_count[0] == 1
@@ -150,22 +145,23 @@ class TestSchedule:
         assert scheduled_count[0] >= 1
 
     def test_new_task_has_same_topic_and_message(self):
-        app = Application(sources=[], queue_timeout=0.1)
         tasks_seen = []
+        ds = ArrayDataSource([])
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.2)
 
         @app.handler("my.topic")
         def h(app, task):  # noqa: ARG001
             tasks_seen.append((task.topic, task.message, task.id))
 
-        ds = ArrayDataSource([])
         tpl = Task("my.topic", "payload", adapter=ds)
         app.schedule("* * * * *", tpl)
 
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(tasks_seen) >= 2)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(tasks_seen) >= 2)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         first, second = tasks_seen[0], tasks_seen[1]
         assert first[0] == "my.topic"

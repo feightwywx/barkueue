@@ -21,7 +21,7 @@ class DedupPriorityQueue(PriorityQueue[Task]):
 
     def __init__(self, maxsize: int = 0) -> None:
         super().__init__(maxsize)
-        self._queued_ids: set[int] = set()
+        self._queued_ids: set[str] = set()
 
     def put(self, item: Task, block: bool = True, timeout: float | None = None) -> None:
         """Put a task into the queue, silently skipping duplicate IDs.
@@ -33,7 +33,7 @@ class DedupPriorityQueue(PriorityQueue[Task]):
             self._queued_ids.add(item.id)
             super().put(item, block, timeout)
 
-    def dispose(self, task_id: int) -> None:
+    def dispose(self, task_id: str) -> None:
         """Release a task ID so it can be re-enqueued.
 
         Call this after a task has been fully processed (success or failure).

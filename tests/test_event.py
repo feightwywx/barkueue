@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import threading
-import time
+from datetime import datetime
+
+from conftest import wait_until
 
 from barkueue.application import Application
 from barkueue.datasource import ArrayDataSource
@@ -15,7 +17,6 @@ from barkueue.event import (
     Event,
 )
 from barkueue.task import Task
-from barkueue.worker import Worker
 
 
 class TestEventDataclass:
@@ -155,15 +156,19 @@ class TestEventFiring:
 class TestLifecycleOrder:
     """Verify the six events fire in the correct sequence."""
 
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
-
     def test_event_firing_order_in_worker_loop(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
         events = []
+
+        @app.event(APP_BEFORE_RUN)
+        def on_app_before(event):
+            events.append(("app_before", None))
+
+        @app.event(APP_AFTER_RUN)
+        def on_app_after(event):
+            events.append(("app_after", None))
 
         @app.event(TASK_BEFORE_RUN)
         def on_task_before(event):
@@ -181,25 +186,19 @@ class TestLifecycleOrder:
         def on_task_after(event):
             events.append(("task_after", event.task))
 
-        app.event(APP_BEFORE_RUN)(lambda e: events.append(("app_before", None)))
-        app.event(APP_AFTER_RUN)(lambda e: events.append(("app_after", None)))
-
         @app.handler("test")
         def h(app, task):  # noqa: ARG001
             pass
 
-        ds = ArrayDataSource([])
-        task = Task("test", "msg", adapter=ds)
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: any(e[0] == "task_after" for e in events))
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: any(e[0] == "task_after" for e in events))
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         # Verify order within the worker loop (exclude app_before/app_after
-        # which are not fired by the worker)
+        # which fire around app.run(), not inside the worker loop)
         event_names = [e[0] for e in events]
         worker_event_order = [
             n for n in event_names if n not in ("app_before", "app_after")
@@ -213,14 +212,11 @@ class TestLifecycleOrder:
 
 
 class TestHandlerEventsOnlyWhenHandlersMatch:
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
-
     def test_handler_events_not_fired_when_no_handlers_match(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("no_match_topic", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+
         handler_events = []
         task_after_fired = []
 
@@ -236,28 +232,22 @@ class TestHandlerEventsOnlyWhenHandlersMatch:
         def on_task_after(event):
             task_after_fired.append(True)
 
-        ds = ArrayDataSource([])
-        task = Task("no_match_topic", "msg", adapter=ds)
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(task_after_fired) >= 1)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(task_after_fired) >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert handler_events == []
 
 
 class TestHandlerAfterRunOnException:
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
-
     def test_handler_after_run_fires_when_handler_raises(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+
         after_events = []
 
         @app.event(HANDLER_AFTER_RUN)
@@ -268,15 +258,12 @@ class TestHandlerAfterRunOnException:
         def failing(app, task):  # noqa: ARG001
             raise RuntimeError("handler failed")
 
-        ds = ArrayDataSource([])
-        task = Task("test", "msg", adapter=ds)
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(after_events) >= 1)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(after_events) >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert len(after_events) == 1
         # original function name via @wraps
@@ -284,35 +271,33 @@ class TestHandlerAfterRunOnException:
 
 
 class TestTaskAfterRun:
-    def _wait_for(self, condition, timeout=5):
-        deadline = time.monotonic() + timeout
-        while not condition() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert condition(), f"condition not met within {timeout}s"
-
     def test_task_after_run_fires_when_no_handler_matches(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("no_match_topic", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+
         after_events = []
 
         @app.event(TASK_AFTER_RUN)
         def on_after(event):
             after_events.append(event.task)
 
-        ds = ArrayDataSource([])
-        task = Task("no_match_topic", "msg", adapter=ds)
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(after_events) >= 1)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(after_events) >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert len(after_events) == 1
-        assert after_events[0] is task
+        assert after_events[0].topic == "no_match_topic"
+        assert after_events[0].message == "msg"
 
     def test_task_after_run_fires_on_success(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+
         after_events = []
 
         @app.event(TASK_AFTER_RUN)
@@ -323,25 +308,24 @@ class TestTaskAfterRun:
         def h(app, task):  # noqa: ARG001
             pass
 
-        task = Task("test", "msg")
-        internal = [task]
-        ds = ArrayDataSource(internal)
-        task.adapter = ds
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(after_events) >= 1)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        # Wait for status to be persisted (push happens after event fires)
+        wait_until(lambda: internal[0].status is not None and len(after_events) >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert len(after_events) == 1
-        assert after_events[0] is task
-        ds.push()
+        assert after_events[0].topic == "test"
+        assert after_events[0].message == "msg"
         assert internal[0].status == 0
 
     def test_task_after_run_fires_on_failure(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+
         after_events = []
 
         @app.event(TASK_AFTER_RUN)
@@ -352,25 +336,24 @@ class TestTaskAfterRun:
         def h(app, task):  # noqa: ARG001
             raise RuntimeError("fail")
 
-        task = Task("test", "msg")
-        internal = [task]
-        ds = ArrayDataSource(internal)
-        task.adapter = ds
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(after_events) >= 1)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        # Wait for status to be persisted (push happens after event fires)
+        wait_until(lambda: internal[0].status is not None and len(after_events) >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert len(after_events) == 1
-        assert after_events[0] is task
-        ds.push()
+        assert after_events[0].topic == "test"
+        assert after_events[0].message == "msg"
         assert internal[0].status == 1
 
     def test_task_before_run_fires(self):
-        app = Application(sources=[], queue_timeout=0.1)
+        internal = [Task("test", "msg", due=datetime(2020, 1, 1))]
+        ds = ArrayDataSource(internal)
+        app = Application(sources=[ds], fetch_interval=0.1, queue_timeout=0.5)
+
         before_events = []
 
         @app.event(TASK_BEFORE_RUN)
@@ -381,18 +364,16 @@ class TestTaskAfterRun:
         def h(app, task):  # noqa: ARG001
             pass
 
-        ds = ArrayDataSource([])
-        task = Task("test", "msg", adapter=ds)
-        app.queue.put(task)
-
-        worker = Worker(app)
-        worker.start()
-        self._wait_for(lambda: len(before_events) >= 1)
-        worker.stop()
-        worker.join(timeout=1)
+        t = threading.Thread(target=app.run)
+        t.start()
+        wait_until(lambda: len(before_events) >= 1)
+        for w in app.workers:
+            w.stop()
+        t.join(timeout=2)
 
         assert len(before_events) == 1
-        assert before_events[0] is task
+        assert before_events[0].topic == "test"
+        assert before_events[0].message == "msg"
 
 
 class TestAppLifecycleEvents:
@@ -411,10 +392,10 @@ class TestAppLifecycleEvents:
         def on_after(event):
             after_fired.append(True)
 
-        # Run app in background, stop after a short time
+        # Run app in background, stop after workers are running
         t = threading.Thread(target=app.run)
         t.start()
-        time.sleep(0.3)
+        wait_until(lambda: len(app.workers) > 0)
         for w in app.workers:
             w.stop()
         t.join(timeout=2)

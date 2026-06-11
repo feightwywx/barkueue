@@ -12,7 +12,7 @@ class ArrayDataSource(DataSource):
     def __init__(self, internal: MutableSequence[Task]) -> None:
         self._internal = internal
         self.tasks: MutableSequence[Task] = []
-        self._updated: dict[int, int] = {}
+        self._updated: dict[str, int] = {}
 
     def fetch(self) -> None:
         for task in self._internal:
